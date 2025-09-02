@@ -83,8 +83,21 @@
       </div>
 
       <div class="card">
-        <h3>Session Summary (unsaved swings)</h3>
-        <div id="sessionSummary" class="summary"></div>
+        <h3>Session Summary (per club)</h3>
+        <div class="table-wrap">
+          <table class="table" id="sessionPerClub">
+            <thead>
+              <tr>
+                <th>Club</th>
+                <th>Average</th>
+                <th>Longest</th>
+                <th>Shortest</th>
+                <th>Swings</th>
+              </tr>
+            </thead>
+            <tbody><!-- filled by JS --></tbody>
+          </table>
+        </div>
       </div>
 
       <div class="card">
@@ -130,13 +143,19 @@
       </div>
 
       <div class="card">
-        <h3>Shapes Breakdown (filtered)</h3>
-        <canvas id="shapesChart" height="110"></canvas>
+        <h3>Per-Club Longest • Average • Shortest (history/filtered)</h3>
+        <canvas id="historyBars" height="120"></canvas>
       </div>
 
       <div class="card">
-        <h3>Per-Club Longest • Avg • Shortest (history/filtered)</h3>
-        <canvas id="historyBars" height="120"></canvas>
+        <h3>Shot Types (bar) — selected club or All</h3>
+        <canvas id="clubShapesBar" height="110"></canvas>
+      </div>
+
+      <div class="card" id="clubTrendCard">
+        <h3>Distance Trend (line) — selected club</h3>
+        <canvas id="clubDistanceLine" height="120"></canvas>
+        <p class="small" id="trendNote" style="display:none;">Select a single club to see the distance trend.</p>
       </div>
 
       <div class="card">
@@ -158,4 +177,4 @@
   <footer class="footer"><small>Local-only data. 🔨🤖🔧</small></footer>
   <script src="app.js"></script>
 </body>
-</html>
+              </html>
