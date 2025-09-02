@@ -43,9 +43,9 @@ function getHistoryBar(){
   historyBarChart = new Chart(canvas, {
     type:'bar',
     data:{labels:[],datasets:[
-      {label:'Best',data:[],backgroundColor:'#19d27c'},
+      {label:'Longest',data:[],backgroundColor:'#19d27c'},
       {label:'Average',data:[],backgroundColor:'#4d7cff'},
-      {label:'Worst',data:[],backgroundColor:'#ff5c5c'}
+      {label:'Shortest',data:[],backgroundColor:'#ff5c5c'}
     ]},
     options:{responsive:true,scales:{y:{beginAtZero:true}}}
   });
@@ -82,8 +82,8 @@ function renderLogger(){
   $$('#sessionSummary').innerHTML = `
     <div class="summary">
       <div class="box"><div class="label">Avg (10)</div><div class="val">${safe(st.avg)}</div></div>
-      <div class="box"><div class="label">Best</div><div class="val">${safe(st.max)}</div></div>
-      <div class="box"><div class="label">Worst</div><div class="val">${safe(st.min)}</div></div>
+      <div class="box"><div class="label">Longest</div><div class="val">${safe(st.max)}</div></div>
+      <div class="box"><div class="label">Shortest</div><div class="val">${safe(st.min)}</div></div>
       <div class="box"><div class="label">Session Swings</div><div class="val">${sessionShots.length}</div></div>
     </div>
   `;
@@ -129,15 +129,15 @@ function renderHistoryFiltered(){
   // Per-club Best/Avg/Worst chart (filtered set)
   const grouped = byClub(filtered);
   const clubs = Object.keys(grouped).sort();
-  const best = clubs.map(c=>stats(grouped[c]).max);
+  const longest= clubs.map(c=>stats(grouped[c]).max);
   const avg  = clubs.map(c=>stats(grouped[c]).avg);
-  const worst= clubs.map(c=>stats(grouped[c]).min);
+  const shortest= clubs.map(c=>stats(grouped[c]).min);
   const hb = getHistoryBar();
   if (hb){
     hb.data.labels = clubs;
-    hb.data.datasets[0].data = best.map(v=>Number.isFinite(v)?v:0);
+    hb.data.datasets[0].data = longest.map(v=>Number.isFinite(v)?v:0);
     hb.data.datasets[1].data = avg.map(v=>Number.isFinite(v)?v:0);
-    hb.data.datasets[2].data = worst.map(v=>Number.isFinite(v)?v:0);
+    hb.data.datasets[2].data = shortest.map(v=>Number.isFinite(v)?v:0);
     hb.update();
   }
 
