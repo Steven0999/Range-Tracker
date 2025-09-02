@@ -1,461 +1,373 @@
-/* Driving Range Tracker
-   Data stays in localStorage. No backend. */
+/* Fast Driving Range Tracker
+   - Compact UI
+   - Numeric-only distance input
+   - Debounced renders
+   - Charts reused (not destroyed each render)
+*/
+const $$ = (s, r=document) => r.querySelector(s);
+const $$$ = (s, r=document) => Array.from(r.querySelectorAll(s));
+const STORAGE_KEY = 'drivingRangeShotsV2';
 
-// ===== Utilities =====
-const $$ = (sel, root = document) => root.querySelector(sel);
-const $$$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
-const fmtDate = (iso) => new Date(iso).toLocaleString();
+const fmtDateTime = (iso) => new Date(iso).toLocaleString();
+const toDatetimeLocal = (iso) => {
+  const d = new Date(iso);
+  const pad = n => String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
 const uid = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2,8)}`;
-const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
 
-const STORAGE_KEY = 'drivingRangeShotsV1';
+// State
+let shots = load();
+function load(){ try{ return JSON.parse(localStorage.getItem(STORAGE_KEY)) || [] } catch { return [] } }
+function save(){ localStorage.setItem(STORAGE_KEY, JSON.stringify(shots)) }
 
-function loadShots(){
-  try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) ?? []; }
-  catch { return []; }
-}
-function saveShots(shots){
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(shots));
-}
+// Debounce helper
+let rafToken = null;
+const schedule = (fn) => { cancelAnimationFrame(rafToken); rafToken = requestAnimationFrame(fn); };
 
-let shots = loadShots();
-
-// ===== Routing =====
-function showView(id){
-  $$$('.view').forEach(v => v.classList.remove('view--active'));
-  $$('#' + id).classList.add('view--active');
-  // nav state
-  $$$('.nav__btn').forEach(b => b.setAttribute('aria-selected', b.dataset.target === id ? 'true' : 'false'));
-  if(id === 'historyView'){ renderHistory(); } else { renderLoggerSide(); }
-}
-
-// ===== Toast =====
+// Toast
 let toastTimer;
 function toast(msg){
-  const el = $$('#toast');
-  el.textContent = msg;
-  el.classList.add('show');
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(()=> el.classList.remove('show'), 1800);
+  const el = $$('#toast'); el.textContent = msg; el.classList.add('show');
+  clearTimeout(toastTimer); toastTimer = setTimeout(()=> el.classList.remove('show'), 1500);
 }
 
-// ===== Charts =====
-let clubBarsChart, trendChart, shapesChart;
+// ====== Charts (created once) ======
+let clubBarsChart = null, trendChart = null, shapesChart = null;
 
-function ensureClubBarsChart(ctx){
-  if (clubBarsChart) clubBarsChart.destroy();
-  clubBarsChart = new Chart(ctx, {
-    type: 'bar',
-    data: { labels: [], datasets: [] },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      scales: {
-        x: { stacked: false, ticks: { color: '#cfe3ff' } },
-        y: { beginAtZero: true, ticks: { color: '#cfe3ff' }, title: { display:true, text:'Yards' } },
+function getClubBarsChart(){
+  if (clubBarsChart) return clubBarsChart;
+  clubBarsChart = new Chart($$('#clubBars').getContext('2d'), {
+    type:'bar',
+    data:{ labels:[], datasets:[
+      {label:'Best', data:[], backgroundColor:'#19d27c'},
+      {label:'Average', data:[], backgroundColor:'#4d7cff'},
+      {label:'Worst', data:[], backgroundColor:'#ff5c5c'}
+    ]},
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      animation:false,
+      scales:{ y:{ beginAtZero:true, title:{display:true, text:'Yards'} } },
+      plugins:{ legend:{ labels:{ color:'#cfe3ff' } } }
+    }
+  });
+  return clubBarsChart;
+}
+
+function getTrendChart(){
+  if (trendChart) return trendChart;
+  trendChart = new Chart($$('#trendChart').getContext('2d'), {
+    type:'scatter',
+    data:{ datasets:[
+      { type:'scatter', label:'Swings', data:[], borderColor:'#2ea8e8', backgroundColor:'#2ea8e8', pointRadius:3 },
+      { type:'line', label:'Trend', data:[], borderColor:'#ffaa4d', borderWidth:2, pointRadius:0, fill:false, tension:0 }
+    ]},
+    options:{
+      responsive:true, maintainAspectRatio:false, animation:false, parsing:false,
+      scales:{
+        x:{ type:'time', time:{ unit:'day' }, title:{ display:true, text:'Date' } },
+        y:{ beginAtZero:true, title:{ display:true, text:'Yards' } }
       },
-      plugins: {
-        legend: { labels: { color: '#cfe3ff' } },
-        tooltip: { mode: 'index', intersect: false }
-      }
+      plugins:{ legend:{ labels:{ color:'#cfe3ff' } } }
     }
   });
+  return trendChart;
 }
 
-function ensureTrendChart(ctx){
-  if (trendChart) trendChart.destroy();
-  trendChart = new Chart(ctx, {
-    type: 'scatter',
-    data: { datasets: [] },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      parsing: false,
-      scales: {
-        x: { type: 'time', time: { unit: 'day' }, ticks: { color:'#cfe3ff' }, title: { display:true, text:'Date' } },
-        y: { beginAtZero: true, ticks: { color:'#cfe3ff' }, title: { display:true, text:'Yards' } }
-      },
-      plugins:{
-        legend: { labels: { color:'#cfe3ff' } },
-        tooltip: {
-          callbacks: {
-            label: (ctx) => {
-              if (ctx.dataset.label === 'Trend') return ` Trend: ${ctx.raw.y.toFixed(1)} yds`;
-              const s = ctx.raw.meta;
-              return ` ${s.club}${s.isHybrid?' (Hybrid)':''} — ${s.distance} yds`;
-            }
-          }
-        }
-      }
-    }
+function getShapesChart(){
+  if (shapesChart) return shapesChart;
+  shapesChart = new Chart($$('#shapesChart').getContext('2d'), {
+    type:'doughnut',
+    data:{ labels:[], datasets:[{ data:[], backgroundColor:['#19d27c','#ff5c5c','#4d7cff','#ffaa4d','#8f6bff','#40e0d0','#ffd700'] }] },
+    options:{ responsive:true, maintainAspectRatio:false, animation:false, plugins:{ legend:{ labels:{ color:'#cfe3ff' } } } }
   });
+  return shapesChart;
 }
 
-function ensureShapesChart(ctx){
-  if (shapesChart) shapesChart.destroy();
-  shapesChart = new Chart(ctx, {
-    type: 'doughnut',
-    data: { labels: [], datasets: [{ data: [], backgroundColor: ['#17d27c','#ff5c5c','#4d7cff','#ffaa4d','#8f6bff','#40e0d0','#ffd700'] }] },
-    options: {
-      responsive: true, maintainAspectRatio:false,
-      plugins: { legend: { labels: { color:'#cfe3ff' } } }
-    }
-  });
-}
-
-// ===== Aggregations =====
-function groupByClub(data = shots){
-  const map = new Map();
-  data.forEach(s => {
+// ====== Aggregations ======
+function byClub(arr = shots){
+  const m = new Map();
+  for(const s of arr){
     const key = s.club + (s.isHybrid ? ' (Hybrid)' : '');
-    if (!map.has(key)) map.set(key, []);
-    map.get(key).push(s);
-  });
-  return map;
+    if(!m.has(key)) m.set(key, []);
+    m.get(key).push(s);
+  }
+  return m;
 }
-
-function statsFor(arr){
-  if (!arr.length) return { count:0, avg:0, min:0, max:0 };
-  const distances = arr.map(s => s.distance);
-  const sum = distances.reduce((a,b)=>a+b,0);
-  return {
-    count: arr.length,
-    avg: +(sum/arr.length).toFixed(1),
-    min: Math.min(...distances),
-    max: Math.max(...distances)
-  };
+function stats(arr){
+  if(!arr.length) return {count:0, avg:0, min:0, max:0};
+  const ds = arr.map(s=>s.distance);
+  const sum = ds.reduce((a,b)=>a+b,0);
+  return {count:arr.length, avg:+(sum/arr.length).toFixed(1), min:Math.min(...ds), max:Math.max(...ds)};
 }
-
-function shapesTally(data = shots){
-  const tally = new Map();
-  data.forEach(s => tally.set(s.shape, (tally.get(s.shape)||0)+1));
-  return tally;
+function tallyShapes(arr = shots){
+  const t = new Map();
+  for(const s of arr) t.set(s.shape, (t.get(s.shape)||0)+1);
+  return t;
 }
-
-// Simple linear regression y = a + b*x
-function linearRegression(points){ // points: [{x: timestamp, y: distance}]
-  if (points.length < 2) return null;
+function regression(points){ // [{x:ts, y:num}]
+  if(points.length<2) return null;
   const xs = points.map(p=>p.x), ys = points.map(p=>p.y);
-  const n = points.length;
-  const mean = (a) => a.reduce((s,v)=>s+v,0)/a.length;
-  const xbar = mean(xs), ybar = mean(ys);
+  const n = points.length, mean = a => a.reduce((s,v)=>s+v,0)/a.length;
+  const xbar=mean(xs), ybar=mean(ys);
   let num=0, den=0;
-  for(let i=0;i<n;i++){ num += (xs[i]-xbar)*(ys[i]-ybar); den += (xs[i]-xbar)**2; }
-  const b = den === 0 ? 0 : num/den;
-  const a = ybar - b*xbar;
-  // Build two end points for the chart (minX, maxX)
+  for(let i=0;i<n;i++){ num+=(xs[i]-xbar)*(ys[i]-ybar); den+=(xs[i]-xbar)**2; }
+  const b = den===0 ? 0 : num/den, a = ybar - b*xbar;
   const minX = Math.min(...xs), maxX = Math.max(...xs);
-  return { a, b, line: [{x:minX, y:a+b*minX}, {x:maxX, y:a+b*maxX}] };
+  return [{x:minX, y:a+b*minX}, {x:maxX, y:a+b*maxX}];
 }
 
-// ===== Renders =====
+// ====== Renders ======
+function renderAll(){
+  renderLoggerSide();
+  if($$('#historyView').classList.contains('view--active')) renderHistory();
+}
+
 function renderLoggerSide(){
-  // Session summary (last 10 swings)
-  const recent = [...shots].sort((a,b)=> b.date.localeCompare(a.date)).slice(0, 10);
-  const sum = statsFor(recent);
+  // Session summary (last 10)
+  const recent = [...shots].sort((a,b)=> b.date.localeCompare(a.date)).slice(0,10);
+  const st = stats(recent);
   const straight = recent.filter(s=>s.shape==='Straight').length;
   const hooks = recent.filter(s=>s.shape==='Hook').length;
   const slices = recent.filter(s=>s.shape==='Slice').length;
-  const wrap = $$('#sessionSummary');
-  wrap.innerHTML = `
-    <div class="summary-item"><h4>Recent Avg</h4><div class="val">${sum.avg} yds</div></div>
-    <div class="summary-item"><h4>Best (10)</h4><div class="val">${sum.max||0} yds</div></div>
-    <div class="summary-item"><h4>Worst (10)</h4><div class="val">${sum.min||0} yds</div></div>
-    <div class="summary-item"><h4>Shapes (10)</h4><div class="val">S:${straight} • H:${hooks} • Sl:${slices}</div></div>
+  $$('#sessionSummary').innerHTML = `
+    <div class="summary">
+      <div class="box"><div class="label">Recent Avg</div><div class="val">${st.avg} yds</div></div>
+      <div class="box"><div class="label">Best (10)</div><div class="val">${st.max||0}</div></div>
+      <div class="box"><div class="label">Worst (10)</div><div class="val">${st.min||0}</div></div>
+      <div class="box"><div class="label">Shapes (10)</div><div class="val">S:${straight} • H:${hooks} • Sl:${slices}</div></div>
+    </div>
   `;
 
-  // Per-club grouped bars
-  const map = groupByClub();
-  const clubs = [...map.keys()].sort((a,b)=> a.localeCompare(b));
-  const best = clubs.map(c => statsFor(map.get(c)).max);
-  const avg  = clubs.map(c => statsFor(map.get(c)).avg);
-  const worst= clubs.map(c => {
-    const st = statsFor(map.get(c));
-    return st.min || 0;
-  });
+  // Club bars
+  const m = byClub();
+  const clubs = [...m.keys()].sort((a,b)=>a.localeCompare(b));
+  const best = clubs.map(c=>stats(m.get(c)).max);
+  const avg  = clubs.map(c=>stats(m.get(c)).avg);
+  const worst= clubs.map(c=>stats(m.get(c)).min || 0);
 
-  const ctxBars = $$('#clubBars').getContext('2d');
-  ensureClubBarsChart(ctxBars);
-  clubBarsChart.data.labels = clubs;
-  clubBarsChart.data.datasets = [
-    { label:'Best', data:best, backgroundColor:'#17d27c' },
-    { label:'Average', data:avg, backgroundColor:'#4d7cff' },
-    { label:'Worst', data:worst, backgroundColor:'#ff5c5c' }
-  ];
-  clubBarsChart.update();
+  const cb = getClubBarsChart();
+  cb.data.labels = clubs;
+  cb.data.datasets[0].data = best;
+  cb.data.datasets[1].data = avg;
+  cb.data.datasets[2].data = worst;
+  cb.update();
 
-  // Trend chart default to first club with data
-  const trendSelect = $$('#trendClub');
-  trendSelect.innerHTML = clubs.map(c => `<option value="${c}">${c}</option>`).join('') || `<option value="">No data yet</option>`;
-  if (clubs.length){
-    if (!trendSelect.value) trendSelect.value = clubs[0];
-    renderTrend(trendSelect.value);
-  } else {
-    const ctxTrend = $$('#trendChart').getContext('2d');
-    ensureTrendChart(ctxTrend);
-    trendChart.data.datasets = [];
-    trendChart.update();
+  // Trend selector + chart
+  const sel = $$('#trendClub');
+  sel.innerHTML = clubs.length ? clubs.map(c=>`<option>${c}</option>`).join('') : `<option>No data yet</option>`;
+  if(clubs.length){
+    if(!sel.value || !clubs.includes(sel.value)) sel.value = clubs[0];
+    updateTrend(sel.value);
+  }else{
+    const tc = getTrendChart();
+    tc.data.datasets[0].data = [];
+    tc.data.datasets[1].data = [];
+    tc.update();
   }
 
   // Latest table
-  renderLatestTable();
-}
-
-function renderTrend(clubKey){
-  const ctx = $$('#trendChart').getContext('2d');
-  ensureTrendChart(ctx);
-
-  const map = groupByClub();
-  const arr = map.get(clubKey) || [];
-  const points = arr.map(s => ({
-    x: new Date(s.date).getTime(),
-    y: s.distance,
-    meta: s
-  })).sort((a,b)=> a.x - b.x);
-
-  const reg = linearRegression(points);
-  trendChart.data.datasets = [
-    {
-      type:'scatter',
-      label:'Swings',
-      data: points,
-      borderColor:'#2ea8e8',
-      backgroundColor:'#2ea8e8',
-      pointRadius:4,
-    }
-  ];
-  if (reg){
-    trendChart.data.datasets.push({
-      type:'line',
-      label:'Trend',
-      data: reg.line,
-      borderColor:'#ffaa4d',
-      borderWidth:2,
-      fill:false,
-      pointRadius:0,
-      tension:0
-    });
-  }
-  trendChart.update();
-}
-
-function renderLatestTable(){
   const tbody = $$('#latestTable tbody');
-  const rows = [...shots].sort((a,b)=> b.date.localeCompare(a.date)).slice(0, 12);
-  tbody.innerHTML = rows.map(s => rowHTML(s, false)).join('') || `<tr><td colspan="6" class="muted">No swings yet. Add your first above 💡</td></tr>`;
+  const latest = [...shots].sort((a,b)=> b.date.localeCompare(a.date)).slice(0,12);
+  tbody.innerHTML = latest.length ? latest.map(s=>rowHTML(s,false)).join('') : `<tr><td colspan="6" class="small">No swings yet.</td></tr>`;
+}
+
+function updateTrend(clubKey){
+  const map = byClub();
+  const arr = map.get(clubKey) || [];
+  const pts = arr.map(s=>({ x:new Date(s.date).getTime(), y:s.distance, meta:s })).sort((a,b)=>a.x-b.x);
+  const tc = getTrendChart();
+  tc.data.datasets[0].data = pts;
+  tc.data.datasets[1].data = regression(pts) || [];
+  tc.update();
 }
 
 function renderHistory(){
-  // Totals
-  $$('#totalSwings').textContent = shots.length;
-  const tally = shapesTally();
-  $$('#totalStraight').textContent = tally.get('Straight') || 0;
-  $$('#totalHook').textContent = tally.get('Hook') || 0;
-  $$('#totalSlice').textContent = tally.get('Slice') || 0;
+  // Stats boxes
+  const t = tallyShapes();
+  const total = shots.length;
+  const straight = t.get('Straight')||0, hook = t.get('Hook')||0, slice = t.get('Slice')||0;
+  $$('#historyStats').innerHTML = `
+    <div class="stats">
+      <div class="box"><div class="label">Total Swings</div><div class="val">${total}</div></div>
+      <div class="box"><div class="label">Straight</div><div class="val">${straight}</div></div>
+      <div class="box"><div class="label">Hook</div><div class="val">${hook}</div></div>
+      <div class="box"><div class="label">Slice</div><div class="val">${slice}</div></div>
+    </div>
+  `;
 
-  // Shapes chart
-  const labels = Array.from(tally.keys()).sort();
-  const data = labels.map(k => tally.get(k));
-  const ctx = $$('#shapesChart').getContext('2d');
-  ensureShapesChart(ctx);
-  shapesChart.data.labels = labels;
-  shapesChart.data.datasets[0].data = data;
-  shapesChart.update();
+  // Shapes donut
+  const labels = Array.from(t.keys()).sort();
+  const data = labels.map(k=>t.get(k));
+  const sc = getShapesChart();
+  sc.data.labels = labels;
+  sc.data.datasets[0].data = data;
+  sc.update();
 
   // Full table
   const tbody = $$('#historyTable tbody');
   const rows = [...shots].sort((a,b)=> b.date.localeCompare(a.date));
-  tbody.innerHTML = rows.map(s => rowHTML(s, true)).join('') || `<tr><td colspan="6" class="muted">No swings in history.</td></tr>`;
+  tbody.innerHTML = rows.length ? rows.map(s=>rowHTML(s,true)).join('') : `<tr><td colspan="6" class="small">No swings recorded.</td></tr>`;
 }
 
 function rowHTML(s, withActions){
-  const hybrid = s.isHybrid ? 'Yes' : 'No';
   return `
     <tr data-id="${s.id}">
-      <td>${fmtDate(s.date)}</td>
+      <td>${fmtDateTime(s.date)}</td>
       <td>${s.club}</td>
-      <td>${hybrid}</td>
-      <td class="distance-cell">${s.distance}</td>
-      <td class="shape-cell">${s.shape}</td>
-      <td>
-        ${withActions ? `
-          <div class="row">
-            <button class="btn btn--sm edit">Edit</button>
-            <button class="btn btn--sm danger delete">Delete</button>
-          </div>
-        ` : ''}
-      </td>
+      <td>${s.isHybrid?'Y':'N'}</td>
+      <td class="distance">${s.distance}</td>
+      <td class="shape">${s.shape}</td>
+      <td>${withActions?`<button class="btn primary btn-sm edit">Edit</button> <button class="btn danger btn-sm delete">Delete</button>`:''}</td>
     </tr>
   `;
 }
 
-// ===== Editing (inline) =====
-function beginEdit(tr){
-  const id = tr.dataset.id;
-  const s = shots.find(x => x.id === id);
-  if (!s) return;
-
-  tr.innerHTML = `
-    <td><input type="datetime-local" class="edit-date" value="${toLocalDatetimeValue(s.date)}"></td>
-    <td>${s.club}</td>
-    <td>${s.isHybrid ? 'Yes' : 'No'}</td>
-    <td><input type="number" class="edit-distance" min="1" step="1" value="${s.distance}"></td>
-    <td>
-      <select class="edit-shape">
-        ${['Straight','Draw','Fade','Hook','Slice','Pull','Push'].map(v=>`<option ${s.shape===v?'selected':''}>${v}</option>`).join('')}
-      </select>
-    </td>
-    <td>
-      <div class="row">
-        <button class="btn btn--sm primary save">Save</button>
-        <button class="btn btn--sm cancel">Cancel</button>
-      </div>
-    </td>
-  `;
-}
-
-function toLocalDatetimeValue(iso){
-  // Convert ISO string to value for input[type="datetime-local"]
-  const d = new Date(iso);
-  const pad = (n)=> String(n).padStart(2,'0');
-  const yyyy = d.getFullYear();
-  const mm = pad(d.getMonth()+1);
-  const dd = pad(d.getDate());
-  const hh = pad(d.getHours());
-  const mi = pad(d.getMinutes());
-  return `${yyyy}-${mm}-${dd}T${hh}:${mi}`;
-}
-
-function finishEdit(tr, saveChanges){
-  const id = tr.dataset.id;
-  const idx = shots.findIndex(x => x.id === id);
-  if (idx === -1) return;
-
-  if (saveChanges){
-    const dateVal = tr.querySelector('.edit-date').value;
-    const distVal = +tr.querySelector('.edit-distance').value;
-    const shapeVal = tr.querySelector('.edit-shape').value;
-    if (!dateVal || !distVal || distVal < 1){
-      toast('Please enter a valid date and distance ❗');
-      return;
-    }
-    shots[idx].date = new Date(dateVal).toISOString();
-    shots[idx].distance = Math.round(clamp(distVal, 1, 2000));
-    shots[idx].shape = shapeVal;
-    saveShots(shots);
-    toast('Swing updated ✔️');
-  }
-
-  // Re-render both tables and charts/statistics
-  renderHistory();
-  renderLoggerSide();
-}
-
-// ===== Form handling =====
-function onFormSubmit(e){
+// ====== Events & Editing ======
+function onSubmit(e){
   e.preventDefault();
   const clubType = $$('#clubType').value;
   const isHybrid = $$('#isHybrid').checked;
-  const otherClub = $$('#otherClub').value.trim();
-  const club = clubType === 'Other' ? (otherClub || 'Other') : clubType;
+  const other = $$('#otherClub').value.trim();
+  const club = clubType === 'Other' ? (other || 'Other') : clubType;
 
-  const distance = Math.round(+$$('#distance').value);
-  const shape = $$('#shape').value;
+  const distRaw = $$('#distance').value.trim();
+  if(!distRaw){ toast('Enter distance in yards ❗'); return; }
+  const distance = Math.max(1, Math.min(2000, parseInt(distRaw,10) || 0));
+  if(!distance){ toast('Distance must be digits only ❗'); return; }
+
   const dateVal = $$('#date').value;
+  if(!dateVal){ toast('Pick a date/time ❗'); return; }
 
-  if (!distance || distance < 1 || !dateVal){
-    toast('Please enter a valid distance and date ❗');
-    return;
-  }
-
-  const swing = {
+  shots.push({
     id: uid(),
     date: new Date(dateVal).toISOString(),
-    club,
-    isHybrid,
-    distance,
-    shape
-  };
-
-  shots.push(swing);
-  saveShots(shots);
+    club, isHybrid, distance,
+    shape: $$('#shape').value
+  });
+  save();
   e.target.reset();
-  // Reset dependent UI
   $$('#otherClubWrap').hidden = true;
   $$('#clubType').value = 'Driver';
   $$('#shape').value = 'Straight';
-  $$('#date').value = toLocalDatetimeValue(new Date().toISOString());
-
-  renderLoggerSide();
+  $$('#date').value = toDatetimeLocal(new Date().toISOString());
+  schedule(renderAll);
   toast('Swing added ✔️');
 }
 
-function onClubTypeChange(){
-  const isOther = $$('#clubType').value === 'Other';
-  $$('#otherClubWrap').hidden = !isOther;
-  if (isOther) $$('#otherClub').focus();
+function startEdit(tr){
+  const id = tr.dataset.id;
+  const s = shots.find(x=>x.id===id); if(!s) return;
+  tr.innerHTML = `
+    <td><input type="datetime-local" class="e-date" value="${toDatetimeLocal(s.date)}"></td>
+    <td>${s.club}</td>
+    <td>${s.isHybrid?'Y':'N'}</td>
+    <td><input type="text" class="e-dist" inputmode="numeric" pattern="[0-9]*" maxlength="4" value="${s.distance}"></td>
+    <td>
+      <select class="e-shape">
+        ${['Straight','Draw','Fade','Hook','Slice','Pull','Push'].map(v=>`<option ${s.shape===v?'selected':''}>${v}</option>`).join('')}
+      </select>
+    </td>
+    <td><button class="btn primary save">Save</button> <button class="btn cancel">Cancel</button></td>
+  `;
+  // numeric-only in edit row
+  const ed = tr.querySelector('.e-dist');
+  enforceNumericOnly(ed);
 }
 
-function onTrendClubChange(){
-  const club = $$('#trendClub').value;
-  if (club) renderTrend(club);
+function finishEdit(tr, saveIt){
+  const id = tr.dataset.id;
+  const idx = shots.findIndex(x=>x.id===id); if(idx<0) return;
+
+  if(saveIt){
+    const d = tr.querySelector('.e-date').value;
+    const distStr = (tr.querySelector('.e-dist').value||'').replace(/\D+/g,'');
+    const sh = tr.querySelector('.e-shape').value;
+    if(!d || !distStr){ toast('Enter valid date & distance ❗'); return; }
+    shots[idx].date = new Date(d).toISOString();
+    shots[idx].distance = Math.max(1, Math.min(2000, parseInt(distStr,10)));
+    shots[idx].shape = sh;
+    save(); toast('Updated ✔️');
+  }
+  schedule(()=>{ renderHistory(); renderLoggerSide(); });
 }
 
-// ===== Event wiring =====
-function wireEvents(){
-  // Top nav
-  $$$('.nav__btn').forEach(btn => btn.addEventListener('click', () => showView(btn.dataset.target)));
-  // History back button
-  $$$('#historyView .btn').forEach(btn => {
-    if (btn.dataset.target) btn.addEventListener('click', () => showView(btn.dataset.target));
-  });
+function wire(){
+  // Nav
+  $$$('.nav__btn').forEach(b=>b.addEventListener('click', ()=>{
+    $$$('.view').forEach(v=>v.classList.remove('view--active'));
+    $$('#'+b.dataset.target).classList.add('view--active');
+    $$$('.nav__btn').forEach(x=>x.setAttribute('aria-selected', x===b ? 'true' : 'false'));
+    if(b.dataset.target==='historyView') renderHistory(); else renderLoggerSide();
+  }));
+  // Back button
+  $$$('[data-target="loggerView"]').forEach(b=>b.addEventListener('click', ()=>$$('.nav__btn[data-target="loggerView"]').click()));
+
   // Form
-  $$('#swingForm').addEventListener('submit', onFormSubmit);
-  $$('#swingForm').addEventListener('reset', () => setTimeout(()=> $$('#distance').focus(), 0));
-  $$('#clubType').addEventListener('change', onClubTypeChange);
-  $$('#trendClub').addEventListener('change', onTrendClubChange);
+  $$('#swingForm').addEventListener('submit', onSubmit);
+  $$('#swingForm').addEventListener('reset', ()=>setTimeout(()=> $$('#distance').focus(),0));
+  $$('#clubType').addEventListener('change', ()=>{
+    const isOther = $$('#clubType').value==='Other';
+    $$('#otherClubWrap').hidden = !isOther;
+    if(isOther) $$('#otherClub').focus();
+  });
+  $$('#trendClub').addEventListener('change', e=> updateTrend(e.target.value));
 
-  // Edit/Delete in history table (event delegation)
-  $$('#historyTable').addEventListener('click', (e) => {
-    const btn = e.target.closest('button');
-    if (!btn) return;
-    const tr = e.target.closest('tr');
-    if (!tr) return;
+  // Distance numeric-only (prevents your typing issue + blocks non-digits)
+  enforceNumericOnly($$('#distance'));
 
-    if (btn.classList.contains('edit')) beginEdit(tr);
-    if (btn.classList.contains('delete')) {
+  // Edit/Delete in history (event delegation)
+  $$('#historyTable').addEventListener('click', (e)=>{
+    const btn = e.target.closest('button'); if(!btn) return;
+    const tr = e.target.closest('tr'); if(!tr) return;
+    if(btn.classList.contains('edit')) return startEdit(tr);
+    if(btn.classList.contains('delete')){
       const id = tr.dataset.id;
-      shots = shots.filter(s => s.id !== id);
-      saveShots(shots);
-      renderHistory();
-      renderLoggerSide();
-      toast('Deleted ✔️');
+      shots = shots.filter(s=>s.id!==id); save(); schedule(()=>{ renderHistory(); renderLoggerSide(); }); toast('Deleted ✔️'); return;
     }
-    if (btn.classList.contains('save')) finishEdit(tr, true);
-    if (btn.classList.contains('cancel')) renderHistory();
+    if(btn.classList.contains('save')) return finishEdit(tr, true);
+    if(btn.classList.contains('cancel')) return renderHistory();
   });
 
   // Reset all
-  $$('#resetAll').addEventListener('click', () => {
-    if (confirm('Delete ALL swings from this browser?')) {
-      shots = [];
-      saveShots(shots);
-      renderHistory();
-      renderLoggerSide();
-      toast('All data cleared');
+  $$('#resetAll').addEventListener('click', ()=>{
+    if(confirm('Delete ALL swings from this browser?')){
+      shots = []; save(); schedule(renderAll); toast('All data cleared');
     }
+  });
+
+  // Prevent accidental scroll-wheel distance changes anywhere
+  document.addEventListener('wheel', (e)=>{
+    if(e.target && (e.target.id==='distance' || e.target.classList?.contains('e-dist'))){
+      e.preventDefault();
+    }
+  }, { passive:false });
+}
+
+// Enforce numeric-only behavior on a text input
+function enforceNumericOnly(input){
+  input.addEventListener('beforeinput', (e)=>{
+    if(e.data && /\D/.test(e.data)) e.preventDefault();
+  });
+  input.addEventListener('input', (e)=>{
+    const v = e.target.value.replace(/\D+/g,'').slice(0,4); // max 4 digits (up to 2000)
+    if(e.target.value !== v) e.target.value = v;
+  });
+  input.addEventListener('keypress', (e)=>{
+    if(!/[0-9]/.test(e.key)) e.preventDefault();
+  });
+  input.addEventListener('paste', (e)=>{
+    e.preventDefault();
+    const text = (e.clipboardData || window.clipboardData).getData('text') || '';
+    const digits = text.replace(/\D+/g,'').slice(0,4);
+    document.execCommand('insertText', false, digits);
   });
 }
 
 // ===== Init =====
 function init(){
-  // default date input = now
-  const nowIso = new Date().toISOString();
-  $$('#date').value = toLocalDatetimeValue(nowIso);
-
-  // First render
+  $$('#date').value = toDatetimeLocal(new Date().toISOString());
   renderLoggerSide();
-  wireEvents();
+  wire();
 }
-
 document.addEventListener('DOMContentLoaded', init);
