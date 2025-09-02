@@ -55,7 +55,7 @@
 
             <label class="field">
               <span>Distance (yds)</span>
-              <!-- free-form; we'll reset it to "0" after each add -->
+              <!-- free-form; we reset it to "0" after each add -->
               <input id="distance" type="text" placeholder="e.g., 165 or 'long drive'" required />
             </label>
 
@@ -75,7 +75,6 @@
 
           <div class="actions">
             <button type="submit" class="btn primary">Add Swing</button>
-            <!-- make this a button that only clears distance (not a <button type="reset"> which resets the whole form) -->
             <button type="button" id="clearDistance" class="btn">Clear Distance</button>
             <button type="button" id="saveSession" class="btn primary">Save Data ➜ History</button>
             <button type="button" id="resetSelections" class="btn danger">Reset Selections</button>
