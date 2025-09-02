@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Driving Range Tracker</title>
+  <link rel="stylesheet" href="styles.css" />
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <h1>Driving Range Tracker</h1>
+    <nav class="nav">
+      <button id="navLogger" class="nav__btn" data-target="loggerView" aria-controls="loggerView" aria-selected="true">Logger</button>
+      <button id="navHistory" class="nav__btn" data-target="historyView" aria-controls="historyView">History</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- LOGGER VIEW -->
+    <section id="loggerView" class="view view--active" role="region" aria-labelledby="navLogger">
+      <div class="card">
+        <h2>Record a Swing</h2>
+        <form id="swingForm" autocomplete="off">
+          <div class="grid">
+            <div class="field">
+              <label for="clubType">Club</label>
+              <select id="clubType" required>
+                <optgroup label="Driver">
+                  <option value="Driver">Driver</option>
+                </optgroup>
+                <optgroup label="Woods">
+                  <option value="3 Wood">3 Wood</option>
+                  <option value="4 Wood">4 Wood</option>
+                  <option value="5 Wood">5 Wood</option>
+                  <option value="7 Wood">7 Wood</option>
+                </optgroup>
+                <optgroup label="Irons">
+                  <option value="1 Iron">1 Iron</option>
+                  <option value="2 Iron">2 Iron</option>
+                  <option value="3 Iron">3 Iron</option>
+                  <option value="4 Iron">4 Iron</option>
+                  <option value="5 Iron">5 Iron</option>
+                  <option value="6 Iron">6 Iron</option>
+                  <option value="7 Iron">7 Iron</option>
+                  <option value="8 Iron">8 Iron</option>
+                  <option value="9 Iron">9 Iron</option>
+                </optgroup>
+                <optgroup label="Wedges">
+                  <option value="Pitching Wedge">Pitching Wedge</option>
+                  <option value="Gap Wedge">Gap Wedge</option>
+                  <option value="Sand Wedge">Sand Wedge</option>
+                  <option value="Lob Wedge">Lob Wedge</option>
+                </optgroup>
+                <optgroup label="Other">
+                  <option value="Other">Other (custom)</option>
+                </optgroup>
+              </select>
+            </div>
+
+            <div class="field" id="otherClubWrap" hidden>
+              <label for="otherClub">Custom Club Name</label>
+              <input id="otherClub" type="text" placeholder="e.g., 2 Hybrid, 64° Wedge" />
+            </div>
+
+            <div class="field field--checkbox">
+              <label class="chk">
+                <input id="isHybrid" type="checkbox" />
+                <span>Hybrid</span>
+              </label>
+            </div>
+
+            <div class="field">
+              <label for="distance">Distance (yds)</label>
+              <input id="distance" type="number" inputmode="decimal" min="1" step="1" placeholder="e.g., 165" required />
+            </div>
+
+            <div class="field">
+              <label for="shape">Shot Shape</label>
+              <select id="shape" required>
+                <option value="Straight">Straight</option>
+                <option value="Draw">Draw</option>
+                <option value="Fade">Fade</option>
+                <option value="Hook">Hook</option>
+                <option value="Slice">Slice</option>
+                <option value="Pull">Pull</option>
+                <option value="Push">Push</option>
+              </select>
+            </div>
+
+            <div class="field">
+              <label for="date">Date & Time</label>
+              <input id="date" type="datetime-local" required />
+            </div>
+          </div>
+
+          <div class="actions">
+            <button type="submit" class="btn primary">Add Swing</button>
+            <button type="reset" class="btn">Clear</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="card">
+        <h3>Session Summary</h3>
+        <div class="summary-grid" id="sessionSummary">
+          <!-- Filled by JS -->
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Per-Club Best / Average / Worst</h3>
+        <canvas id="clubBars" height="120"></canvas>
+        <div class="legend-tip">Green = Best • Blue = Average • Red = Worst</div>
+      </div>
+
+      <div class="card">
+        <div class="row">
+          <h3>Trend (by Club)</h3>
+          <div class="row__right">
+            <label for="trendClub" class="sr-only">Trend Club</label>
+            <select id="trendClub"></select>
+          </div>
+        </div>
+        <canvas id="trendChart" height="120"></canvas>
+      </div>
+
+      <div class="card">
+        <h3>Latest Swings</h3>
+        <div class="table-wrap">
+          <table class="table" id="latestTable" aria-live="polite">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Club</th>
+                <th>Hybrid</th>
+                <th>Distance (yds)</th>
+                <th>Shape</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody><!-- Rows injected by JS --></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card card--danger">
+        <div class="row">
+          <h3>Danger Zone</h3>
+          <button id="resetAll" class="btn danger" aria-label="Delete all data">Reset All Data</button>
+        </div>
+        <p class="muted">This wipes your entire history from this browser only.</p>
+      </div>
+    </section>
+
+    <!-- HISTORY VIEW -->
+    <section id="historyView" class="view" role="region" aria-labelledby="navHistory">
+      <div class="card">
+        <div class="row">
+          <h2>History</h2>
+          <button class="btn" data-target="loggerView">Back to Logger</button>
+        </div>
+        <div class="stats">
+          <div class="stat">
+            <div class="stat__label">Total Swings</div>
+            <div class="stat__value" id="totalSwings">0</div>
+          </div>
+          <div class="stat">
+            <div class="stat__label">Straight</div>
+            <div class="stat__value" id="totalStraight">0</div>
+          </div>
+          <div class="stat">
+            <div class="stat__label">Hook</div>
+            <div class="stat__value" id="totalHook">0</div>
+          </div>
+          <div class="stat">
+            <div class="stat__label">Slice</div>
+            <div class="stat__value" id="totalSlice">0</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Shapes Breakdown</h3>
+        <canvas id="shapesChart" height="110"></canvas>
+      </div>
+
+      <div class="card">
+        <h3>All Swings</h3>
+        <div class="table-wrap">
+          <table class="table" id="historyTable">
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Club</th>
+                <th>Hybrid</th>
+                <th>Distance (yds)</th>
+                <th>Shape</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody><!-- Injected --></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast" role="status" aria-live="polite"></div>
+
+  <footer class="footer">
+    <small>Data is stored locally in your browser. No account required. 🔨🤖🔧</small>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+  </html>
