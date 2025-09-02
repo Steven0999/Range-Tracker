@@ -7,7 +7,10 @@ function load(){try{return JSON.parse(localStorage.getItem(STORAGE_KEY))||[]}cat
 function save(){localStorage.setItem(STORAGE_KEY,JSON.stringify(shots))}
 
 const fmt = iso=>new Date(iso).toLocaleString();
-const toLocal = iso=>{const d=new Date(iso);const p=n=>String(n).padStart(2,'0');return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`};
+const toLocal = iso=>{
+  const d=new Date(iso);const p=n=>String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+};
 const uid=()=>`${Date.now().toString(36)}-${Math.random().toString(36).slice(2,8)}`;
 function toast(msg){const t=$$('#toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),1500)}
 
@@ -33,7 +36,10 @@ function renderLogger(){
       <div class="box"><div class="label">Worst</div><div class="val">${st.min}</div></div>
       <div class="box"><div class="label">Swings</div><div class="val">${shots.length}</div></div>
     </div>`;
-  const m=byClub();const clubs=[...m.keys()].sort();const best=clubs.map(c=>stats(m.get(c)).max);const avg=clubs.map(c=>stats(m.get(c)).avg);const worst=clubs.map(c=>stats(m.get(c)).min);
+  const m=byClub();const clubs=[...m.keys()].sort();
+  const best=clubs.map(c=>stats(m.get(c)).max);
+  const avg=clubs.map(c=>stats(m.get(c)).avg);
+  const worst=clubs.map(c=>stats(m.get(c)).min);
   const cb=getBar();cb.data.labels=clubs;cb.data.datasets[0].data=best;cb.data.datasets[1].data=avg;cb.data.datasets[2].data=worst;cb.update();
   const sel=$$('#trendClub');sel.innerHTML=clubs.map(c=>`<option>${c}</option>`).join('');if(clubs.length)updateTrend(clubs[0]);
   const tbody=$$('#latestTable tbody');tbody.innerHTML=shots.slice(-12).reverse().map(s=>rowHTML(s,false)).join('')||'<tr><td colspan="6">No swings</td></tr>';
@@ -43,72 +49,49 @@ function renderHistory(){const t={};shots.forEach(s=>t[s.shape]=(t[s.shape]||0)+
 function rowHTML(s,act){return `<tr data-id="${s.id}"><td>${fmt(s.date)}</td><td>${s.club}</td><td>${s.isHybrid?'Y':'N'}</td><td>${s.distance}</td><td>${s.shape}</td><td>${act?'<button class="btn edit">Edit</button><button class="btn danger delete">Delete</button>':''}</td></tr>`}
 
 // Events
-function onSubmit(e){e.preventDefault();const clubType=$$('#clubType').value;const isHybrid=$$('#isHybrid').checked;const other=$$('#otherClub').value.trim();const club=clubType==='Other'?(other||'Other'):clubType;const distance=$$('#distance').value.trim();const dateVal=$$('#date').value;if(!dateVal||!distance){toast('Fill all fields');return}shots.push({id:uid(),date:new Date(dateVal).toISOString(),club,isHybrid,distance,shape:$$('#shape').value});save();e.target.reset();$$('#otherClubWrap').hidden=true;$$('#date').value=toLocal(new Date().toISOString());renderLogger();toast('Swing added ✔️')}
-function startEdit(tr){const id=tr.dataset.id;const s=shots.find(x=>x.id===id);tr.innerHTML=`<td><input type="datetime-local" class="e-date" value="${toLocal(s.date)}"></td><td>${s.club}</td><td>${s.isHybrid?'Y':'N'}</td><td><input type="text" class="e-dist" value="${s.distance}"></td><td><select class="e-shape">${['Straight','Draw','Fade','Hook','Slice','Pull','Push'].map(v=>`<option ${s.shape===v?'selected':''}>${v}</option>`).join('')}</select></td>
-    <td><button class="btn save">Save</button><button class="btn cancel">Cancel</button></td>`;
-}
+function onSubmit(e){
+  e.preventDefault();
+  const clubType=$$('#clubType').value;
+  const isHybrid=$$('#isHybrid').checked;
+  const other=$$('#otherClub').value.trim();
+  const club=clubType==='Other'?(other||'Other'):clubType;
+  const distance=$$('#distance').value.trim();
+  const dateVal=$$('#date').value;
+  if(!dateVal||!distance){toast('Fill all fields');return}
+  shots.push({id:uid(),date:new Date(dateVal).toISOString(),club,isHybrid,distance,shape:$$('#shape').value});
+  save();
 
-function finishEdit(tr, saveIt){
-  const id = tr.dataset.id;
-  const idx = shots.findIndex(x => x.id === id);
-  if(idx < 0) return;
+  // Only reset distance + update date
+  $$('#distance').value="";
+  $$('#date').value=toLocal(new Date().toISOString());
 
-  if(saveIt){
-    const d = tr.querySelector('.e-date').value;
-    const dist = tr.querySelector('.e-dist').value.trim();
-    const sh = tr.querySelector('.e-shape').value;
-    if(!d || !dist){ toast('Fill all fields ❗'); return; }
-    shots[idx].date = new Date(d).toISOString();
-    shots[idx].distance = dist;
-    shots[idx].shape = sh;
-    save();
-    toast('Updated ✔️');
-  }
-  renderHistory();
   renderLogger();
+  toast('Swing added ✔️');
+  $$('#distance').focus();
 }
-
+function startEdit(tr){const id=tr.dataset.id;const s=shots.find(x=>x.id===id);tr.innerHTML=`<td><input type="datetime-local" class="e-date" value="${toLocal(s.date)}"></td><td>${s.club}</td><td>${s.isHybrid?'Y':'N'}</td><td><input type="text" class="e-dist" value="${s.distance}"></td><td><select class="e-shape">${['Straight','Draw','Fade','Hook','Slice','Pull','Push'].map(v=>`<option ${s.shape===v?'selected':''}>${v}</option>`).join('')}</select></td><td><button class="btn save">Save</button><button class="btn cancel">Cancel</button></td>`}
+function finishEdit(tr,saveIt){const id=tr.dataset.id;const idx=shots.findIndex(x=>x.id===id);if(idx<0)return;if(saveIt){const d=tr.querySelector('.e-date').value;const dist=tr.querySelector('.e-dist').value.trim();const sh=tr.querySelector('.e-shape').value;if(!d||!dist){toast('Fill all fields ❗');return}shots[idx].date=new Date(d).toISOString();shots[idx].distance=dist;shots[idx].shape=sh;save();toast('Updated ✔️')}renderHistory();renderLogger()}
 function wire(){
-  // Nav
-  $$$('.nav__btn').forEach(btn => btn.addEventListener('click', ()=>{
-    $$$('.view').forEach(v=>v.classList.remove('view--active'));
-    $$('#'+btn.dataset.target).classList.add('view--active');
-    $$$('.nav__btn').forEach(x=>x.setAttribute('aria-selected', x===btn?'true':'false'));
-    if(btn.dataset.target==='historyView') renderHistory();
-    else renderLogger();
-  }));
-  // Back
-  $$$('[data-target="loggerView"]').forEach(b=>b.addEventListener('click', ()=>$$('.nav__btn[data-target="loggerView"]').click()));
-  // Form
-  $$('#swingForm').addEventListener('submit', onSubmit);
-  $$('#clubType').addEventListener('change', ()=>{
-    $$('#otherClubWrap').hidden = $$('#clubType').value !== 'Other';
-  });
-  $$('#trendClub').addEventListener('change', e=> updateTrend(e.target.value));
-  // Edit/Delete
-  $$('#historyTable').addEventListener('click', e=>{
-    const btn = e.target.closest('button'); if(!btn) return;
-    const tr = e.target.closest('tr'); if(!tr) return;
-    if(btn.classList.contains('edit')) startEdit(tr);
-    if(btn.classList.contains('delete')){
-      shots = shots.filter(s=>s.id !== tr.dataset.id); save();
-      renderHistory(); renderLogger(); toast('Deleted ✔️');
-    }
-    if(btn.classList.contains('save')) finishEdit(tr, true);
-    if(btn.classList.contains('cancel')) renderHistory();
-  });
-  // Reset
-  $$('#resetAll').addEventListener('click', ()=>{
-    if(confirm('Delete ALL swings?')){
-      shots = []; save(); renderLogger(); renderHistory(); toast('Cleared');
-    }
+  $$$('.nav__btn').forEach(btn=>btn.addEventListener('click',()=>{$$$('.view').forEach(v=>v.classList.remove('view--active'));$$('#'+btn.dataset.target).classList.add('view--active');$$$('.nav__btn').forEach(x=>x.setAttribute('aria-selected',x===btn?'true':'false'));if(btn.dataset.target==='historyView')renderHistory();else renderLogger();}));
+  $$$('[data-target="loggerView"]').forEach(b=>b.addEventListener('click',()=>$$('.nav__btn[data-target="loggerView"]').click()));
+  $$('#swingForm').addEventListener('submit',onSubmit);
+  $$('#clubType').addEventListener('change',()=>{$$('#otherClubWrap').hidden=$$('#clubType').value!=='Other';});
+  $$('#trendClub').addEventListener('change',e=>updateTrend(e.target.value));
+  $$('#historyTable').addEventListener('click',e=>{const btn=e.target.closest('button');if(!btn)return;const tr=e.target.closest('tr');if(!tr)return;if(btn.classList.contains('edit'))startEdit(tr);if(btn.classList.contains('delete')){shots=shots.filter(s=>s.id!==tr.dataset.id);save();renderHistory();renderLogger();toast('Deleted ✔️')}if(btn.classList.contains('save'))finishEdit(tr,true);if(btn.classList.contains('cancel'))renderHistory();});
+  $$('#resetAll').addEventListener('click',()=>{if(confirm('Delete ALL swings?')){shots=[];save();renderLogger();renderHistory();toast('Cleared')}});
+
+  // Reset selections button
+  $$('#resetSelections').addEventListener('click',()=>{
+    $$('#clubType').value='Driver';
+    $$('#isHybrid').checked=false;
+    $$('#otherClub').value='';
+    $$('#otherClubWrap').hidden=true;
+    $$('#distance').value='';
+    $$('#shape').value='Straight';
+    $$('#date').value=toLocal(new Date().toISOString());
+    toast('Selections reset ✔️');
+    $$('#distance').focus();
   });
 }
-
-function init(){
-  $$('#date').value = toLocal(new Date().toISOString());
-  renderLogger();
-  wire();
-}
-
-document.addEventListener('DOMContentLoaded', init);
+function init(){$$('#date').value=toLocal(new Date().toISOString());renderLogger();wire()}
+document.addEventListener('DOMContentLoaded',init);
