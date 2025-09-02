@@ -3,15 +3,17 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Driving Range Tracker — Stable</title>
+  <title>Driving Range Tracker — Charts Stable</title>
   <link rel="stylesheet" href="styles.css" />
   <style>
-    /* Minimal visibility control so the app is usable even if JS fails */
     .view{display:none}
     #logger.view--active{display:block}
     #logger:target, #history:target{display:block}
     .small{color:#9aa0be}
+    .card h3 { margin-bottom: .5rem; }
   </style>
+  <!-- Chart.js (optional but recommended). If offline, app still works without charts. -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js" defer></script>
 </head>
 <body>
   <header class="topbar">
@@ -135,13 +137,32 @@
         </div>
 
         <div class="row" style="gap:.6rem; align-items:center;">
-          <label class="field" style="max-width:300px;">
+          <label class="field" style="max-width:320px;">
             <span>Filter by Club</span>
             <select id="historyClubFilter">
               <option value="__all__">All Clubs</option>
             </select>
           </label>
         </div>
+      </div>
+
+      <div class="card">
+        <h3>Per-Club Longest • Average • Shortest (filtered)</h3>
+        <canvas id="historyBars" height="120"></canvas>
+        <p id="barNote" class="small" style="display:none;">Charts need network to load Chart.js.</p>
+      </div>
+
+      <div class="card">
+        <h3>Shot Types (filtered: selected club or All)</h3>
+        <canvas id="clubShapesBar" height="110"></canvas>
+        <p id="shapesNote" class="small" style="display:none;">Charts need network to load Chart.js.</p>
+      </div>
+
+      <div class="card" id="clubTrendCard">
+        <h3>Distance Trend (selected club)</h3>
+        <canvas id="clubDistanceLine" height="120"></canvas>
+        <p id="trendNote" class="small" style="display:none;">Select a single club to see the distance trend.</p>
+        <p id="lineNote" class="small" style="display:none;">Charts need network to load Chart.js.</p>
       </div>
 
       <div class="card">
@@ -161,7 +182,7 @@
   <div id="toast"></div>
   <footer class="footer"><small>Local-only data. 🔨🤖🔧</small></footer>
 
-  <!-- Defer to ensure DOM is parsed first -->
+  <!-- Defer to ensure DOM parsed first; sits AFTER Chart.js so charts can instantiate -->
   <script src="app.js" defer></script>
 </body>
-            </html>
+                </html>
