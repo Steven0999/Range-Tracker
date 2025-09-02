@@ -1,16 +1,16 @@
 const $$ = (s, r=document)=>r.querySelector(s);
 const $$$ = (s, r=document)=>Array.from(r.querySelectorAll(s));
 
-// Separate storage for session vs history
+// Storage keys
 const STORAGE_SESSION = 'drivingRange_session';
 const STORAGE_HISTORY = 'drivingRange_history';
 
-// Load/save helpers
+// Load/save helpers (with fallback)
 function load(key){ try{ return JSON.parse(localStorage.getItem(key)) || [] } catch { return [] } }
-function save(key, data){ localStorage.setItem(key, JSON.stringify(data)); }
+function save(key, data){ try{ localStorage.setItem(key, JSON.stringify(data)); } catch{} }
 
-let sessionShots = load(STORAGE_SESSION); // unsaved (Logger)
-let historyShots = load(STORAGE_HISTORY); // persisted (History)
+let sessionShots = load(STORAGE_SESSION);
+let historyShots = load(STORAGE_HISTORY);
 
 // Date helpers
 const fmt = iso=>new Date(iso).toLocaleString();
@@ -20,12 +20,18 @@ const toLocal = iso=>{
 };
 const uid=()=>`${Date.now().toString(36)}-${Math.random().toString(36).slice(2,8)}`;
 
-function toast(msg){ const t=$$('#toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'), 1500); }
+function toast(msg){
+  const t=$$('#toast'); if(!t) return;
+  t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'), 1500);
+}
 
-// ---------- Charts (history only)
+// ---------- Charts (history only) — safe if Chart is missing
 let historyBarChart, clubShapesBarChart, clubDistanceLineChart;
 
+function hasChart(){ return typeof Chart !== 'undefined'; }
+
 function getHistoryBar(){
+  if (!hasChart()) return null;
   if (historyBarChart) return historyBarChart;
   const canvas = $$('#historyBars'); if (!canvas) return null;
   historyBarChart = new Chart(canvas, {
@@ -35,11 +41,12 @@ function getHistoryBar(){
       {label:'Average',data:[],backgroundColor:'#4d7cff'},
       {label:'Shortest',data:[],backgroundColor:'#ff5c5c'}
     ]},
-    options:{responsive:true,scales:{y:{beginAtZero:true, title:{display:true,text:'Yards'}}}}
+    options:{responsive:true,scales:{y:{beginAtZero:true}}}
   });
   return historyBarChart;
 }
 function getClubShapesBar(){
+  if (!hasChart()) return null;
   if (clubShapesBarChart) return clubShapesBarChart;
   const canvas = $$('#clubShapesBar'); if (!canvas) return null;
   clubShapesBarChart = new Chart(canvas, {
@@ -50,20 +57,18 @@ function getClubShapesBar(){
   return clubShapesBarChart;
 }
 function getClubDistanceLine(){
+  if (!hasChart()) return null;
   if (clubDistanceLineChart) return clubDistanceLineChart;
   const canvas = $$('#clubDistanceLine'); if (!canvas) return null;
   clubDistanceLineChart = new Chart(canvas, {
     type:'line',
     data:{datasets:[{label:'Distance',data:[],borderColor:'#ffaa4d',backgroundColor:'rgba(255,170,77,.15)',tension:0.25,pointRadius:3}]},
-    options:{
-      responsive:true, parsing:false,
-      scales:{ x:{type:'time', time:{unit:'day'}}, y:{beginAtZero:true, title:{display:true,text:'Yards'}} }
-    }
+    options:{responsive:true,parsing:false,scales:{x:{type:'time'},y:{beginAtZero:true}}}
   });
   return clubDistanceLineChart;
 }
 
-// ---------- Aggregations (safe for free-form)
+// ---------- Aggregations
 function byClub(arr){
   const m = {};
   for(const s of arr){
@@ -86,16 +91,19 @@ function tallyShapes(arr){
   return map;
 }
 
-// ---------- LOGGER (session) Renders
+// ---------- LOGGER (session) Renders (guarded)
 function renderLogger(){
-  // Per-club table (Average, Longest, Shortest, Swings)
+  const table = $$('#sessionPerClub tbody');
+  const latestBody = $$('#latestTable tbody');
+  if(!table || !latestBody) return;
+
   const grouped = byClub(sessionShots);
   const clubs = Object.keys(grouped).sort();
-  const tbody = $$('#sessionPerClub tbody');
+
   if (!clubs.length){
-    tbody.innerHTML = `<tr><td colspan="5">No swings this session.</td></tr>`;
+    table.innerHTML = `<tr><td colspan="5">No swings this session.</td></tr>`;
   } else {
-    tbody.innerHTML = clubs.map(club=>{
+    table.innerHTML = clubs.map(club=>{
       const st = calcStats(grouped[club]);
       const safe = v => Number.isFinite(v) ? v : 0;
       return `<tr>
@@ -108,18 +116,17 @@ function renderLogger(){
     }).join('');
   }
 
-  // Session table (latest)
-  const latestBody = $$('#latestTable tbody');
   latestBody.innerHTML = sessionShots.length
     ? [...sessionShots].slice(-50).reverse().map(s=>rowHTML(s,false,true)).join('')
     : `<tr><td colspan="6">No swings this session.</td></tr>`;
 }
 
-// ---------- HISTORY Renders (with filter + charts)
+// ---------- HISTORY Renders (guarded)
 function renderHistory(){
+  const sel = $$('#historyClubFilter');
+  if(!sel) return;
   const grouped = byClub(historyShots);
   const clubs = Object.keys(grouped).sort();
-  const sel = $$('#historyClubFilter');
   const prev = sel.value || '__all__';
   sel.innerHTML = `<option value="__all__">All Clubs</option>` + clubs.map(c=>`<option>${c}</option>`).join('');
   sel.value = clubs.includes(prev) ? prev : '__all__';
@@ -127,19 +134,24 @@ function renderHistory(){
 }
 
 function renderHistoryFiltered(){
-  const selVal = $$('#historyClubFilter').value;
+  const sel = $$('#historyClubFilter');
+  const statsBox = $$('#historyStats');
+  const tableBody = $$('#historyTable tbody');
+  if(!sel || !statsBox || !tableBody) return;
+
+  const selVal = sel.value;
   const filtered = selVal==='__all__' ? historyShots : (byClub(historyShots)[selVal] || []);
 
-  // Stats boxes (filtered)
+  // Stats boxes
   const shapeCounts = Object.fromEntries(tallyShapes(filtered));
-  $$('#historyStats').innerHTML = `
+  statsBox.innerHTML = `
     <div class="stats">
       <div class="box"><div class="label">Total</div><div class="val">${filtered.length}</div></div>
       ${Object.entries(shapeCounts).map(([k,v])=>`<div class="box"><div class="label">${k}</div><div class="val">${v}</div></div>`).join('')}
     </div>
   `;
 
-  // Longest • Average • Shortest (bar) — for all clubs in filtered set
+  // Longest • Average • Shortest chart (filtered)
   const grouped = byClub(filtered);
   const clubs = Object.keys(grouped).sort();
   const longest = clubs.map(c=>calcStats(grouped[c]).max);
@@ -154,25 +166,23 @@ function renderHistoryFiltered(){
     hb.update();
   }
 
-  // Shot Types (bar) — for selected club or all clubs
-  const clubShapes = tallyShapes(filtered);
+  // Shot types bar (filtered)
   const csb = getClubShapesBar();
   if (csb){
-    csb.data.labels = Array.from(clubShapes.keys());
-    csb.data.datasets[0].data = Array.from(clubShapes.values());
+    const tallied = tallyShapes(filtered);
+    csb.data.labels = Array.from(tallied.keys());
+    csb.data.datasets[0].data = Array.from(tallied.values());
     csb.update();
   }
 
-  // Distance Trend (line) — only when a single club is selected
-  const trendCard = $$('#clubTrendCard');
+  // Line trend — only when one club selected
   const trendNote = $$('#trendNote');
   const line = getClubDistanceLine();
   if (selVal==='__all__'){
-    // Hide/clear trend when not a specific club
+    if (trendNote) trendNote.style.display = 'block';
     if (line){ line.data.datasets[0].data = []; line.update(); }
-    trendNote.style.display = 'block';
   } else {
-    trendNote.style.display = 'none';
+    if (trendNote) trendNote.style.display = 'none';
     const arr = grouped[selVal] || [];
     const pts = arr
       .map(s=>({x:new Date(s.date).getTime(), y:parseFloat(s.distance)}))
@@ -185,12 +195,12 @@ function renderHistoryFiltered(){
   }
 
   // Table (filtered)
-  $$('#historyTable tbody').innerHTML = filtered.length
+  tableBody.innerHTML = filtered.length
     ? filtered.map(s=>rowHTML(s,true,false)).join('')
     : `<tr><td colspan="6">No saved swings${selVal!=='__all__'?' for this club':''}.</td></tr>`;
 }
 
-// ---------- Row HTML (actions differ per view)
+// ---------- Row HTML
 function rowHTML(s, withActions, isSession){
   return `
     <tr data-id="${s.id}">
@@ -201,10 +211,10 @@ function rowHTML(s, withActions, isSession){
       <td>${s.shape}</td>
       <td>
         ${withActions ? `
-          <button class="btn edit">Edit</button>
-          <button class="btn danger delete">Delete</button>
+          <button class="btn edit" type="button">Edit</button>
+          <button class="btn danger delete" type="button">Delete</button>
         ` : isSession ? `
-          <button class="btn danger delete-session">Remove</button>
+          <button class="btn danger delete-session" type="button">Remove</button>
         ` : ``}
       </td>
     </tr>
@@ -214,31 +224,31 @@ function rowHTML(s, withActions, isSession){
 // ---------- Form submit (SESSION ONLY)
 function onSubmit(e){
   e.preventDefault();
-
-  const clubType=$$('#clubType').value;
-  const isHybrid=$$('#isHybrid').checked;
-  const other=$$('#otherClub').value.trim();
-  const club=clubType==='Other'?(other||'Other'):clubType;
-
-  const distance=$$('#distance').value.trim();
-  const dateVal=$$('#date').value;
-  if(!dateVal || distance === ''){ toast('Fill all fields'); return; }
+  const clubType=$$('#clubType')?.value;
+  const isHybrid=$$('#isHybrid')?.checked;
+  const other=$$('#otherClub')?.value.trim();
+  const distance=$$('#distance')?.value.trim();
+  const dateVal=$$('#date')?.value;
+  if (!clubType || !dateVal || distance === undefined || distance === ''){
+    toast('Fill all fields'); return;
+  }
+  const club = clubType==='Other' ? (other || 'Other') : clubType;
 
   sessionShots.push({
     id: uid(),
     date: new Date(dateVal).toISOString(),
     club, isHybrid, distance,
-    shape: $$('#shape').value
+    shape: $$('#shape')?.value || 'Straight'
   });
   save(STORAGE_SESSION, sessionShots);
 
-  // Only reset distance to "0" + update date; keep club/hybrid/custom
-  $$('#distance').value = "0";
-  $$('#date').value = toLocal(new Date().toISOString());
+  // Reset distance to "0" and refresh date
+  if ($$('#distance')) $$('#distance').value = '0';
+  if ($$('#date')) $$('#date').value = toLocal(new Date().toISOString());
 
   renderLogger();
   toast('Swing added ✔️');
-  $$('#distance').focus();
+  $$('#distance')?.focus();
 }
 
 // ---------- Edit/Delete (HISTORY)
@@ -256,7 +266,7 @@ function startEdit(tr){
         ${['Straight','Draw','Fade','Hook','Slice','Pull','Push'].map(v=>`<option ${s.shape===v?'selected':''}>${v}</option>`).join('')}
       </select>
     </td>
-    <td><button class="btn save">Save</button> <button class="btn cancel">Cancel</button></td>
+    <td><button class="btn save" type="button">Save</button> <button class="btn cancel" type="button">Cancel</button></td>
   `;
 }
 function finishEdit(tr, saveIt){
@@ -265,13 +275,13 @@ function finishEdit(tr, saveIt){
   if(idx<0) return;
 
   if(saveIt){
-    const d = tr.querySelector('.e-date').value;
-    const dist = tr.querySelector('.e-dist').value.trim();
-    const sh = tr.querySelector('.e-shape').value;
+    const d = tr.querySelector('.e-date')?.value;
+    const dist = tr.querySelector('.e-dist')?.value.trim();
+    const sh = tr.querySelector('.e-shape')?.value;
     if(!d || dist === ''){ toast('Fill all fields ❗'); return; }
     historyShots[idx].date = new Date(d).toISOString();
     historyShots[idx].distance = dist;
-    historyShots[idx].shape = sh;
+    historyShots[idx].shape = sh || historyShots[idx].shape;
     save(STORAGE_HISTORY, historyShots);
     toast('Saved ✔️');
   }
@@ -291,15 +301,15 @@ function saveSessionToHistory(){
 
 // ---------- Reset Selections
 function resetSelections(){
-  $$('#clubType').value='Driver';
-  $$('#isHybrid').checked=false;
-  $$('#otherClub').value='';
-  $$('#otherClubWrap').hidden=true;
-  $$('#distance').value='0';
-  $$('#shape').value='Straight';
-  $$('#date').value=toLocal(new Date().toISOString());
+  if ($$('#clubType')) $$('#clubType').value='Driver';
+  if ($$('#isHybrid')) $$('#isHybrid').checked=false;
+  if ($$('#otherClub')) $$('#otherClub').value='';
+  if ($$('#otherClubWrap')) $$('#otherClubWrap').hidden=true;
+  if ($$('#distance')) $$('#distance').value='0';
+  if ($$('#shape')) $$('#shape').value='Straight';
+  if ($$('#date')) $$('#date').value=toLocal(new Date().toISOString());
   toast('Selections reset ✔️');
-  $$('#distance').focus();
+  $$('#distance')?.focus();
 }
 
 // ---------- Wiring
@@ -307,21 +317,21 @@ function wire(){
   // Nav
   $$$('.nav__btn').forEach(btn => btn.addEventListener('click', ()=>{
     $$$('.view').forEach(v=>v.classList.remove('view--active'));
-    $$('#'+btn.dataset.target).classList.add('view--active');
+    $$('#'+btn.dataset.target)?.classList.add('view--active');
     $$$('.nav__btn').forEach(x=>x.setAttribute('aria-selected', x===btn?'true':'false'));
     if(btn.dataset.target==='historyView'){ renderHistory(); } else { renderLogger(); }
   }));
   // Back button
-  $$$('[data-target="loggerView"]').forEach(b=>b.addEventListener('click', ()=>$$('.nav__btn[data-target="loggerView"]').click()));
+  $$$('[data-target="loggerView"]').forEach(b=>b.addEventListener('click', ()=>$$('.nav__btn[data-target="loggerView"]')?.click()));
 
   // Form
-  $$('#swingForm').addEventListener('submit', onSubmit);
-  $$('#clubType').addEventListener('change', ()=>{
-    $$('#otherClubWrap').hidden = $$('#clubType').value !== 'Other';
+  $$('#swingForm')?.addEventListener('submit', onSubmit);
+  $$('#clubType')?.addEventListener('change', ()=>{
+    if ($$('#otherClubWrap')) $$('#otherClubWrap').hidden = $$('#clubType').value !== 'Other';
   });
 
   // Session table remove
-  $$('#latestTable').addEventListener('click', e=>{
+  $$('#latestTable')?.addEventListener('click', e=>{
     const btn = e.target.closest('button'); if(!btn) return;
     const tr = e.target.closest('tr'); if(!tr) return;
     if(btn.classList.contains('delete-session')){
@@ -334,7 +344,7 @@ function wire(){
   });
 
   // History table: edit/delete/save/cancel
-  $$('#historyTable').addEventListener('click', e=>{
+  $$('#historyTable')?.addEventListener('click', e=>{
     const btn = e.target.closest('button'); if(!btn) return;
     const tr = e.target.closest('tr'); if(!tr) return;
     if(btn.classList.contains('edit')) startEdit(tr);
@@ -350,22 +360,21 @@ function wire(){
   });
 
   // History filter dropdown
-  $$('#historyClubFilter').addEventListener('change', renderHistoryFiltered);
+  $$('#historyClubFilter')?.addEventListener('change', renderHistoryFiltered);
 
   // Save session -> history
-  $$('#saveSession').addEventListener('click', saveSessionToHistory);
+  $$('#saveSession')?.addEventListener('click', saveSessionToHistory);
 
   // Reset selections
-  $$('#resetSelections').addEventListener('click', resetSelections);
+  $$('#resetSelections')?.addEventListener('click', resetSelections);
 
   // Clear distance only
-  $$('#clearDistance').addEventListener('click', ()=>{
-    $$('#distance').value = '0';
-    $$('#distance').focus();
+  $$('#clearDistance')?.addEventListener('click', ()=>{
+    if ($$('#distance')) { $$('#distance').value = '0'; $$('#distance').focus(); }
   });
 
   // Reset all data
-  $$('#resetAll').addEventListener('click', ()=>{
+  $$('#resetAll')?.addEventListener('click', ()=>{
     if(confirm('Delete ALL swings from this browser (session + history)?')){
       sessionShots = []; historyShots = [];
       save(STORAGE_SESSION, sessionShots);
@@ -378,12 +387,17 @@ function wire(){
 
 // ---------- Init
 function init(){
-  $$('#date').value = toLocal(new Date().toISOString());
-  $$('#distance').value = '0';
-  $$('#otherClubWrap').hidden = $$('#clubType').value !== 'Other';
-  renderLogger();
-  renderHistory(); // prepare history filter + charts
-  wire();
+  try{
+    if ($$('#date')) $$('#date').value = toLocal(new Date().toISOString());
+    if ($$('#distance')) $$('#distance').value = '0';
+    if ($$('#otherClubWrap')) $$('#otherClubWrap').hidden = $$('#clubType')?.value !== 'Other';
+    renderLogger();
+    renderHistory(); // prepares history UI safely even if charts unavailable
+    wire();
+  } catch(err){
+    console.error(err);
+    toast('Init error — check console');
+  }
 }
 
 document.addEventListener('DOMContentLoaded', init);
