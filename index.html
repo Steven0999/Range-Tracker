@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Driving Range Tracker</title>
   <link rel="stylesheet" href="styles.css" />
+  <!-- Chart.js (optional; app works without it now) -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
 </head>
 <body>
@@ -55,7 +56,6 @@
 
             <label class="field">
               <span>Distance (yds)</span>
-              <!-- free-form; we reset it to "0" after each add -->
               <input id="distance" type="text" placeholder="e.g., 165 or 'long drive'" required />
             </label>
 
@@ -177,4 +177,4 @@
   <footer class="footer"><small>Local-only data. 🔨🤖🔧</small></footer>
   <script src="app.js"></script>
 </body>
-              </html>
+</html>
