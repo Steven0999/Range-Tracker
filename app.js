@@ -1,8 +1,8 @@
-/* Bullet-proof, no-lib core with hash navigation */
+/* History charts restored + robust guards */
 const $$  = (s, r=document)=>r.querySelector(s);
 const $$$ = (s, r=document)=>Array.from(r.querySelectorAll(s));
 
-/* ---------- Safe storage (fallback to memory if localStorage is blocked) ---------- */
+/* ---------- Safe storage (fallback to memory if localStorage blocked) ---------- */
 const STORAGE_SESSION = 'drivingRange_session';
 const STORAGE_HISTORY = 'drivingRange_history';
 const mem = { [STORAGE_SESSION]: [], [STORAGE_HISTORY]: [] };
@@ -47,9 +47,57 @@ function byClub(arr){
   }
   return m;
 }
+function tallyShapes(arr){
+  const shapes = ['Straight','Draw','Fade','Hook','Slice','Pull','Push'];
+  const map = new Map(shapes.map(s=>[s,0]));
+  arr.forEach(s => map.set(s.shape, (map.get(s.shape)||0)+1));
+  return map;
+}
 function toast(msg){
   const t=$$('#toast'); if(!t) return;
   t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'), 1400);
+}
+
+/* ---------- Charts (History only) ---------- */
+const hasChart = ()=> typeof Chart !== 'undefined';
+let historyBarChart, clubShapesBarChart, clubDistanceLineChart;
+
+function getHistoryBar(){
+  if (!hasChart()) { $$('#barNote')?.style && ($$('#barNote').style.display='block'); return null; }
+  if (historyBarChart) return historyBarChart;
+  const ctx = $$('#historyBars'); if(!ctx) return null;
+  historyBarChart = new Chart(ctx, {
+    type:'bar',
+    data:{labels:[],datasets:[
+      {label:'Longest',data:[],backgroundColor:'#19d27c'},
+      {label:'Average',data:[],backgroundColor:'#4d7cff'},
+      {label:'Shortest',data:[],backgroundColor:'#ff5c5c'}
+    ]},
+    options:{responsive:true,scales:{y:{beginAtZero:true,title:{display:true,text:'Yards'}}}}
+  });
+  return historyBarChart;
+}
+function getClubShapesBar(){
+  if (!hasChart()) { $$('#shapesNote')?.style && ($$('#shapesNote').style.display='block'); return null; }
+  if (clubShapesBarChart) return clubShapesBarChart;
+  const ctx = $$('#clubShapesBar'); if(!ctx) return null;
+  clubShapesBarChart = new Chart(ctx, {
+    type:'bar',
+    data:{labels:[],datasets:[{label:'Count',data:[],backgroundColor:'#59c2ff'}]},
+    options:{responsive:true,scales:{y:{beginAtZero:true}},plugins:{legend:{display:false}}}
+  });
+  return clubShapesBarChart;
+}
+function getClubDistanceLine(){
+  if (!hasChart()) { $$('#lineNote')?.style && ($$('#lineNote').style.display='block'); return null; }
+  if (clubDistanceLineChart) return clubDistanceLineChart;
+  const ctx = $$('#clubDistanceLine'); if(!ctx) return null;
+  clubDistanceLineChart = new Chart(ctx, {
+    type:'line',
+    data:{datasets:[{label:'Distance',data:[],borderColor:'#ffaa4d',backgroundColor:'rgba(255,170,77,.15)',tension:0.25,pointRadius:3}]},
+    options:{responsive:true,parsing:false,scales:{x:{type:'time',time:{unit:'day'}},y:{beginAtZero:true,title:{display:true,text:'Yards'}}}}
+  });
+  return clubDistanceLineChart;
 }
 
 /* ---------- Rendering: Logger ---------- */
@@ -81,7 +129,7 @@ function renderLogger(){
     : `<tr><td colspan="6">No swings this session.</td></tr>`;
 }
 
-/* ---------- Rendering: History ---------- */
+/* ---------- Rendering: History (with charts) ---------- */
 function renderHistory(){
   const sel = $$('#historyClubFilter'); if(!sel) return;
   const grouped = byClub(historyShots);
@@ -89,8 +137,10 @@ function renderHistory(){
   const prev = sel.value || '__all__';
   sel.innerHTML = `<option value="__all__">All Clubs</option>` + clubs.map(c=>`<option>${c}</option>`).join('');
   sel.value = clubs.includes(prev) ? prev : '__all__';
+
   renderHistoryFiltered();
 }
+
 function renderHistoryFiltered(){
   const sel = $$('#historyClubFilter'); if(!sel) return;
   const tbody = $$('#historyTable tbody'); if(!tbody) return;
@@ -98,6 +148,51 @@ function renderHistoryFiltered(){
   const selVal = sel.value;
   const filtered = selVal==='__all__' ? historyShots : (byClub(historyShots)[selVal] || []);
 
+  // Update bar: per-club Longest / Average / Shortest (for filtered set)
+  const grouped = byClub(filtered);
+  const clubs = Object.keys(grouped).sort();
+  const longest = clubs.map(c=>stats(grouped[c]).max);
+  const average = clubs.map(c=>stats(grouped[c]).avg);
+  const shortest= clubs.map(c=>stats(grouped[c]).min);
+
+  const hb = getHistoryBar();
+  if (hb){
+    hb.data.labels = clubs;
+    hb.data.datasets[0].data = longest.map(v=>Number.isFinite(v)?v:0);
+    hb.data.datasets[1].data = average.map(v=>Number.isFinite(v)?v:0);
+    hb.data.datasets[2].data = shortest.map(v=>Number.isFinite(v)?v:0);
+    hb.update();
+  }
+
+  // Update shot-types bar (for selected club or All)
+  const tallied = tallyShapes(filtered);
+  const csb = getClubShapesBar();
+  if (csb){
+    csb.data.labels = Array.from(tallied.keys());
+    csb.data.datasets[0].data = Array.from(tallied.values());
+    csb.update();
+  }
+
+  // Update line (only when specific club selected)
+  const trendNote = $$('#trendNote');
+  const line = getClubDistanceLine();
+  if (selVal==='__all__'){
+    if (trendNote) trendNote.style.display = 'block';
+    if (line){ line.data.datasets[0].data = []; line.update(); }
+  } else {
+    if (trendNote) trendNote.style.display = 'none';
+    const arr = grouped[selVal] || [];
+    const pts = arr
+      .map(s=>({x:new Date(s.date).getTime(), y:parseFloat(s.distance)}))
+      .filter(p=>!isNaN(p.y))
+      .sort((a,b)=>a.x-b.x);
+    if (line){
+      line.data.datasets[0].data = pts;
+      line.update();
+    }
+  }
+
+  // Table rows (filtered)
   tbody.innerHTML = filtered.length
     ? filtered.map(s=>rowHTML(s,true,false)).join('')
     : `<tr><td colspan="6">No saved swings${selVal!=='__all__'?' for this club':''}.</td></tr>`;
@@ -176,7 +271,7 @@ function resetSelections(){
   $$('#distance')?.focus();
 }
 
-/* ---------- Hash Router (robust) ---------- */
+/* ---------- Hash Router ---------- */
 function showFromHash(){
   const hash = location.hash || '#logger';
   const targetId = hash.replace('#','');
@@ -184,7 +279,6 @@ function showFromHash(){
   const active = document.getElementById(targetId) || document.getElementById('logger');
   if (active) active.classList.add('view--active');
 
-  // toggle nav aria-selected
   $$$('.nav__btn').forEach(a=>{
     const isActive = a.getAttribute('href') === `#${active?.id}`;
     a.setAttribute('aria-selected', isActive ? 'true' : 'false');
@@ -195,16 +289,13 @@ function showFromHash(){
 
 /* ---------- Wiring ---------- */
 function wire(){
-  // Routing
   window.addEventListener('hashchange', showFromHash);
 
-  // Form + inputs
   $$('#swingForm')?.addEventListener('submit', onSubmit);
   $$('#clubType')?.addEventListener('change', ()=>{
     if ($$('#otherClubWrap')) $$('#otherClubWrap').hidden = $$('#clubType').value !== 'Other';
   });
 
-  // Buttons
   $$('#saveSession')?.addEventListener('click', saveSessionToHistory);
   $$('#resetSelections')?.addEventListener('click', resetSelections);
   $$('#clearDistance')?.addEventListener('click', ()=>{ if($$('#distance')){ $$('#distance').value='0'; $$('#distance').focus(); }});
@@ -218,7 +309,6 @@ function wire(){
     }
   });
 
-  // Session remove
   $$('#latestTable')?.addEventListener('click', e=>{
     const btn = e.target.closest('button'); if(!btn) return;
     if(!btn.classList.contains('delete-session')) return;
@@ -230,7 +320,6 @@ function wire(){
     toast('Removed from session ✔️');
   });
 
-  // History edit/delete
   $$('#historyTable')?.addEventListener('click', e=>{
     const btn = e.target.closest('button'); if(!btn) return;
     const tr = e.target.closest('tr'); if(!tr) return;
@@ -274,29 +363,26 @@ function wire(){
       renderHistoryFiltered();
     }
   });
+
+  $$('#historyClubFilter')?.addEventListener('change', renderHistoryFiltered);
 }
 
 /* ---------- Init ---------- */
 function init(){
-  // Prime defaults
   if ($$('#date')) $$('#date').value = toLocal(new Date().toISOString());
   if ($$('#distance')) $$('#distance').value = '0';
   if ($$('#otherClubWrap')) $$('#otherClubWrap').hidden = $$('#clubType')?.value !== 'Other';
 
-  // Initial render & routing
   showFromHash();
   renderLogger();
   renderHistory();
-
-  // Wire events
   wire();
 }
 
-// DOM ready — wrap in try/catch to avoid silent "init error"
 document.addEventListener('DOMContentLoaded', () => {
   try { init(); }
   catch (err) {
     console.error('Init failure:', err);
-    alert('Init error: see console for details'); // visible fallback
+    alert('Init error: see console for details');
   }
 });
