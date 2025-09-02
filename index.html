@@ -17,7 +17,7 @@
   </header>
 
   <main>
-    <!-- LOGGER -->
+    <!-- LOGGER (Session Buffer) -->
     <section id="loggerView" class="view view--active">
       <div class="card">
         <form id="swingForm" autocomplete="off">
@@ -27,7 +27,8 @@
               <select id="clubType" required>
                 <optgroup label="Driver"><option>Driver</option></optgroup>
                 <optgroup label="Woods">
-                  <option>3 Wood</option><option>4 Wood</option><option>5 Wood</option><option>7 Wood</option>
+                  <option>3 Wood</option><option>4 Wood</option>
+                  <option>5 Wood</option><option>7 Wood</option>
                 </optgroup>
                 <optgroup label="Irons">
                   <option>1 Iron</option><option>2 Iron</option><option>3 Iron</option>
@@ -74,28 +75,32 @@
           <div class="actions">
             <button type="submit" class="btn primary">Add Swing</button>
             <button type="reset" class="btn">Clear Distance</button>
+            <button type="button" id="saveSession" class="btn primary">Save Data ➜ History</button>
             <button type="button" id="resetSelections" class="btn danger">Reset Selections</button>
           </div>
         </form>
       </div>
 
-      <div class="card"><div id="sessionSummary" class="summary"></div></div>
+      <div class="card">
+        <h3>Session Summary (unsaved swings)</h3>
+        <div id="sessionSummary" class="summary"></div>
+      </div>
 
       <div class="card">
-        <h3>Per-Club Best • Avg • Worst</h3>
+        <h3>Per-Club Best • Avg • Worst (session)</h3>
         <canvas id="clubBars" height="120"></canvas>
       </div>
 
       <div class="card">
         <div class="row">
-          <h3>Trend</h3>
+          <h3>Trend (session)</h3>
           <select id="trendClub"></select>
         </div>
         <canvas id="trendChart" height="120"></canvas>
       </div>
 
       <div class="card">
-        <h3>Latest Swings</h3>
+        <h3>Latest Session Swings</h3>
         <div class="table-wrap">
           <table class="table" id="latestTable">
             <thead>
@@ -104,33 +109,50 @@
             <tbody></tbody>
           </table>
         </div>
+        <p class="small">These are in your current session only. Click <b>Save Data</b> to move them to History.</p>
       </div>
 
       <div class="card danger">
         <div class="row">
           <h3>Reset All</h3>
-          <button id="resetAll" class="btn danger">Delete All Data</button>
+          <button id="resetAll" class="btn danger">Delete ALL Data (Session + History)</button>
         </div>
       </div>
     </section>
 
-    <!-- HISTORY -->
+    <!-- HISTORY (Persisted after Save Data) -->
     <section id="historyView" class="view">
       <div class="card">
         <div class="row">
           <h2>History</h2>
           <button class="btn" data-target="loggerView">Back</button>
         </div>
-        <div id="historyStats" class="stats"></div>
+
+        <div class="row" style="gap:.6rem; align-items:center;">
+          <label class="field" style="max-width:300px;">
+            <span>Filter by Club</span>
+            <select id="historyClubFilter">
+              <option value="__all__">All Clubs</option>
+              <!-- clubs injected -->
+            </select>
+          </label>
+        </div>
+
+        <div id="historyStats" class="stats" style="margin-top:.6rem"></div>
       </div>
 
       <div class="card">
-        <h3>Shapes Breakdown</h3>
+        <h3>Shapes Breakdown (filtered)</h3>
         <canvas id="shapesChart" height="110"></canvas>
       </div>
 
       <div class="card">
-        <h3>All Swings</h3>
+        <h3>Per-Club Best • Avg • Worst (history/filtered)</h3>
+        <canvas id="historyBars" height="120"></canvas>
+      </div>
+
+      <div class="card">
+        <h3>Saved Swings</h3>
         <div class="table-wrap">
           <table class="table" id="historyTable">
             <thead>
@@ -139,6 +161,7 @@
             <tbody></tbody>
           </table>
         </div>
+        <p class="small">Only swings saved from the Logger appear here.</p>
       </div>
     </section>
   </main>
