@@ -52,26 +52,38 @@ function getHistoryBar(){
   return historyBarChart;
 }
 
-// ---------- Aggregations
-const byClub = (arr)=>arr.reduce((m,s)=>{const k=s.club+(s.isHybrid?' (Hybrid)':''); (m[k]??=[]).push(s); return m;}, {});
+// ---------- Aggregations (fixed byClub)
+function byClub(arr){
+  const m = {};
+  for(const s of arr){
+    const k = s.club + (s.isHybrid ? ' (Hybrid)' : '');
+    (m[k] = m[k] || []).push(s); // <-- assign then push (works reliably)
+  }
+  return m;
+}
 const numericOnly = (arr)=>arr.map(s=>parseFloat(s.distance)).filter(n=>!isNaN(n));
 function stats(arr){
   const nums = numericOnly(arr);
   if (!nums.length) return {avg:0,min:0,max:0};
   const sum = nums.reduce((a,b)=>a+b,0);
-  return {avg:+(sum/nums.length).toFixed(1), min:Math.min(...nums), max:Math.max(...nums)};
+  return {
+    avg: +(sum/nums.length).toFixed(1),
+    min: Math.min(...nums),
+    max: Math.max(...nums)
+  };
 }
 
 // ---------- LOGGER (session) Renders
 function renderLogger(){
-  // Summary (last 10 in session)
+  // Summary (last 10 in session) — safe for free-form distances
   const recent = [...sessionShots].slice(-10).reverse();
   const st = stats(recent);
+  const safe = (v)=> (Number.isFinite(v) ? v : 0);
   $$('#sessionSummary').innerHTML = `
     <div class="summary">
-      <div class="box"><div class="label">Avg (10)</div><div class="val">${st.avg}</div></div>
-      <div class="box"><div class="label">Best</div><div class="val">${st.max}</div></div>
-      <div class="box"><div class="label">Worst</div><div class="val">${st.min}</div></div>
+      <div class="box"><div class="label">Avg (10)</div><div class="val">${safe(st.avg)}</div></div>
+      <div class="box"><div class="label">Best</div><div class="val">${safe(st.max)}</div></div>
+      <div class="box"><div class="label">Worst</div><div class="val">${safe(st.min)}</div></div>
       <div class="box"><div class="label">Session Swings</div><div class="val">${sessionShots.length}</div></div>
     </div>
   `;
@@ -85,14 +97,12 @@ function renderLogger(){
 
 // ---------- HISTORY Renders (with filter + per-club bars)
 function renderHistory(){
-  // Build club filter from history data
   const grouped = byClub(historyShots);
   const clubs = Object.keys(grouped).sort();
   const sel = $$('#historyClubFilter');
   const prev = sel.value || '__all__';
   sel.innerHTML = `<option value="__all__">All Clubs</option>` + clubs.map(c=>`<option>${c}</option>`).join('');
   sel.value = clubs.includes(prev) ? prev : '__all__';
-
   renderHistoryFiltered();
 }
 function renderHistoryFiltered(){
@@ -125,9 +135,9 @@ function renderHistoryFiltered(){
   const hb = getHistoryBar();
   if (hb){
     hb.data.labels = clubs;
-    hb.data.datasets[0].data = best;
-    hb.data.datasets[1].data = avg;
-    hb.data.datasets[2].data = worst;
+    hb.data.datasets[0].data = best.map(v=>Number.isFinite(v)?v:0);
+    hb.data.datasets[1].data = avg.map(v=>Number.isFinite(v)?v:0);
+    hb.data.datasets[2].data = worst.map(v=>Number.isFinite(v)?v:0);
     hb.update();
   }
 
@@ -161,6 +171,7 @@ function rowHTML(s, withActions, isSession){
 // ---------- Form submit (SESSION ONLY)
 function onSubmit(e){
   e.preventDefault();
+
   const clubType=$$('#clubType').value;
   const isHybrid=$$('#isHybrid').checked;
   const other=$$('#otherClub').value.trim();
@@ -168,7 +179,7 @@ function onSubmit(e){
 
   const distance=$$('#distance').value.trim();
   const dateVal=$$('#date').value;
-  if(!dateVal||!distance){ toast('Fill all fields'); return; }
+  if(!dateVal || distance === ''){ toast('Fill all fields'); return; }
 
   sessionShots.push({
     id: uid(),
@@ -214,7 +225,7 @@ function finishEdit(tr, saveIt){
     const d = tr.querySelector('.e-date').value;
     const dist = tr.querySelector('.e-dist').value.trim();
     const sh = tr.querySelector('.e-shape').value;
-    if(!d || !dist){ toast('Fill all fields ❗'); return; }
+    if(!d || dist === ''){ toast('Fill all fields ❗'); return; }
     historyShots[idx].date = new Date(d).toISOString();
     historyShots[idx].distance = dist;
     historyShots[idx].shape = sh;
@@ -266,7 +277,7 @@ function wire(){
     $$('#otherClubWrap').hidden = $$('#clubType').value !== 'Other';
   });
 
-  // Session remove (from session table)
+  // Session table remove
   $$('#latestTable').addEventListener('click', e=>{
     const btn = e.target.closest('button'); if(!btn) return;
     const tr = e.target.closest('tr'); if(!tr) return;
@@ -324,13 +335,9 @@ function wire(){
 
 // ---------- Init
 function init(){
-  // Default input values
   $$('#date').value = toLocal(new Date().toISOString());
   $$('#distance').value = '0';
-
-  // Reveal custom club if current selection is Other
   $$('#otherClubWrap').hidden = $$('#clubType').value !== 'Other';
-
   renderLogger();
   renderHistory(); // prepare history filter + charts
   wire();
