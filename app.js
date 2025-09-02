@@ -1,8 +1,8 @@
-/* History charts restored + robust guards */
+/* No-adapter, no-init-error charts + history filter */
 const $$  = (s, r=document)=>r.querySelector(s);
 const $$$ = (s, r=document)=>Array.from(r.querySelectorAll(s));
 
-/* ---------- Safe storage (fallback to memory if localStorage blocked) ---------- */
+/* ---------- Safe storage ---------- */
 const STORAGE_SESSION = 'drivingRange_session';
 const STORAGE_HISTORY = 'drivingRange_history';
 const mem = { [STORAGE_SESSION]: [], [STORAGE_HISTORY]: [] };
@@ -32,9 +32,10 @@ const toLocal = iso=>{
   return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
 };
 const uid = ()=> `${Date.now().toString(36)}-${Math.random().toString(36).slice(2,8)}`;
-const parseNums = arr => arr.map(s=>parseFloat(s.distance)).filter(n=>!isNaN(n));
+
+const numericOnly = (arr)=>arr.map(s=>parseFloat(s.distance)).filter(n=>!isNaN(n));
 function stats(arr){
-  const nums = parseNums(arr);
+  const nums = numericOnly(arr);
   if(!nums.length) return { avg:0, min:0, max:0, count:arr.length };
   const sum = nums.reduce((a,b)=>a+b,0);
   return { avg:+(sum/nums.length).toFixed(1), min:Math.min(...nums), max:Math.max(...nums), count:arr.length };
@@ -63,7 +64,7 @@ const hasChart = ()=> typeof Chart !== 'undefined';
 let historyBarChart, clubShapesBarChart, clubDistanceLineChart;
 
 function getHistoryBar(){
-  if (!hasChart()) { $$('#barNote')?.style && ($$('#barNote').style.display='block'); return null; }
+  if (!hasChart()) { const n=$$('#barNote'); if(n) n.style.display='block'; return null; }
   if (historyBarChart) return historyBarChart;
   const ctx = $$('#historyBars'); if(!ctx) return null;
   historyBarChart = new Chart(ctx, {
@@ -78,7 +79,7 @@ function getHistoryBar(){
   return historyBarChart;
 }
 function getClubShapesBar(){
-  if (!hasChart()) { $$('#shapesNote')?.style && ($$('#shapesNote').style.display='block'); return null; }
+  if (!hasChart()) { const n=$$('#shapesNote'); if(n) n.style.display='block'; return null; }
   if (clubShapesBarChart) return clubShapesBarChart;
   const ctx = $$('#clubShapesBar'); if(!ctx) return null;
   clubShapesBarChart = new Chart(ctx, {
@@ -89,15 +90,26 @@ function getClubShapesBar(){
   return clubShapesBarChart;
 }
 function getClubDistanceLine(){
-  if (!hasChart()) { $$('#lineNote')?.style && ($$('#lineNote').style.display='block'); return null; }
+  if (!hasChart()) { const n=$$('#lineNote'); if(n) n.style.display='block'; return null; }
   if (clubDistanceLineChart) return clubDistanceLineChart;
   const ctx = $$('#clubDistanceLine'); if(!ctx) return null;
+  // NOTE: category x-axis (no date adapter needed)
   clubDistanceLineChart = new Chart(ctx, {
     type:'line',
-    data:{datasets:[{label:'Distance',data:[],borderColor:'#ffaa4d',backgroundColor:'rgba(255,170,77,.15)',tension:0.25,pointRadius:3}]},
-    options:{responsive:true,parsing:false,scales:{x:{type:'time',time:{unit:'day'}},y:{beginAtZero:true,title:{display:true,text:'Yards'}}}}
+    data:{labels:[],datasets:[{label:'Distance',data:[],borderColor:'#ffaa4d',backgroundColor:'rgba(255,170,77,.15)',tension:0.25,pointRadius:3}]},
+    options:{responsive:true,scales:{y:{beginAtZero:true,title:{display:true,text:'Yards'}}}}
   });
   return clubDistanceLineChart;
+}
+function updateDistanceLineFor(arr){
+  const line = getClubDistanceLine(); if(!line) return;
+  // sort by date asc; ignore non-numeric distances
+  const clean = arr.map(s=>({d:new Date(s.date), y:parseFloat(s.distance)}))
+                   .filter(p=>!isNaN(p.y))
+                   .sort((a,b)=>a.d-b.d);
+  line.data.labels = clean.map(p=> p.d.toLocaleString());
+  line.data.datasets[0].data = clean.map(p=> p.y);
+  line.update();
 }
 
 /* ---------- Rendering: Logger ---------- */
@@ -129,7 +141,7 @@ function renderLogger(){
     : `<tr><td colspan="6">No swings this session.</td></tr>`;
 }
 
-/* ---------- Rendering: History (with charts) ---------- */
+/* ---------- Rendering: History ---------- */
 function renderHistory(){
   const sel = $$('#historyClubFilter'); if(!sel) return;
   const grouped = byClub(historyShots);
@@ -137,7 +149,6 @@ function renderHistory(){
   const prev = sel.value || '__all__';
   sel.innerHTML = `<option value="__all__">All Clubs</option>` + clubs.map(c=>`<option>${c}</option>`).join('');
   sel.value = clubs.includes(prev) ? prev : '__all__';
-
   renderHistoryFiltered();
 }
 
@@ -148,13 +159,12 @@ function renderHistoryFiltered(){
   const selVal = sel.value;
   const filtered = selVal==='__all__' ? historyShots : (byClub(historyShots)[selVal] || []);
 
-  // Update bar: per-club Longest / Average / Shortest (for filtered set)
+  // Per-club Longest / Average / Shortest (bar) — for the filtered collection
   const grouped = byClub(filtered);
   const clubs = Object.keys(grouped).sort();
   const longest = clubs.map(c=>stats(grouped[c]).max);
   const average = clubs.map(c=>stats(grouped[c]).avg);
   const shortest= clubs.map(c=>stats(grouped[c]).min);
-
   const hb = getHistoryBar();
   if (hb){
     hb.data.labels = clubs;
@@ -164,7 +174,7 @@ function renderHistoryFiltered(){
     hb.update();
   }
 
-  // Update shot-types bar (for selected club or All)
+  // Shot types (bar) — selected club or overall
   const tallied = tallyShapes(filtered);
   const csb = getClubShapesBar();
   if (csb){
@@ -173,26 +183,18 @@ function renderHistoryFiltered(){
     csb.update();
   }
 
-  // Update line (only when specific club selected)
+  // Distance line — only for a specific club
   const trendNote = $$('#trendNote');
-  const line = getClubDistanceLine();
   if (selVal==='__all__'){
     if (trendNote) trendNote.style.display = 'block';
-    if (line){ line.data.datasets[0].data = []; line.update(); }
+    const line = getClubDistanceLine();
+    if (line){ line.data.labels=[]; line.data.datasets[0].data=[]; line.update(); }
   } else {
     if (trendNote) trendNote.style.display = 'none';
-    const arr = grouped[selVal] || [];
-    const pts = arr
-      .map(s=>({x:new Date(s.date).getTime(), y:parseFloat(s.distance)}))
-      .filter(p=>!isNaN(p.y))
-      .sort((a,b)=>a.x-b.x);
-    if (line){
-      line.data.datasets[0].data = pts;
-      line.update();
-    }
+    updateDistanceLineFor(grouped[selVal] || []);
   }
 
-  // Table rows (filtered)
+  // Table rows
   tbody.innerHTML = filtered.length
     ? filtered.map(s=>rowHTML(s,true,false)).join('')
     : `<tr><td colspan="6">No saved swings${selVal!=='__all__'?' for this club':''}.</td></tr>`;
