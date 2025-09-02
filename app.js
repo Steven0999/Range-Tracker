@@ -23,23 +23,11 @@ const uid=()=>`${Date.now().toString(36)}-${Math.random().toString(36).slice(2,8
 function toast(msg){ const t=$$('#toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'), 1500); }
 
 // ---------- Charts (history only)
-let shapeChart, historyBarChart;
+let historyBarChart, clubShapesBarChart, clubDistanceLineChart;
 
-function getShape(){
-  if (shapeChart) return shapeChart;
-  const canvas = $$('#shapesChart');
-  if (!canvas) return null;
-  shapeChart = new Chart(canvas, {
-    type:'doughnut',
-    data:{labels:[],datasets:[{data:[],backgroundColor:['#19d27c','#ff5c5c','#4d7cff','#ffaa4d','#8f6bff','#40e0d0','#ffd700']}]},
-    options:{responsive:true}
-  });
-  return shapeChart;
-}
 function getHistoryBar(){
   if (historyBarChart) return historyBarChart;
-  const canvas = $$('#historyBars');
-  if (!canvas) return null;
+  const canvas = $$('#historyBars'); if (!canvas) return null;
   historyBarChart = new Chart(canvas, {
     type:'bar',
     data:{labels:[],datasets:[
@@ -47,55 +35,87 @@ function getHistoryBar(){
       {label:'Average',data:[],backgroundColor:'#4d7cff'},
       {label:'Shortest',data:[],backgroundColor:'#ff5c5c'}
     ]},
-    options:{responsive:true,scales:{y:{beginAtZero:true}}}
+    options:{responsive:true,scales:{y:{beginAtZero:true, title:{display:true,text:'Yards'}}}}
   });
   return historyBarChart;
 }
+function getClubShapesBar(){
+  if (clubShapesBarChart) return clubShapesBarChart;
+  const canvas = $$('#clubShapesBar'); if (!canvas) return null;
+  clubShapesBarChart = new Chart(canvas, {
+    type:'bar',
+    data:{labels:[],datasets:[{label:'Count',data:[],backgroundColor:'#59c2ff'}]},
+    options:{responsive:true,scales:{y:{beginAtZero:true}}, plugins:{legend:{display:false}}}
+  });
+  return clubShapesBarChart;
+}
+function getClubDistanceLine(){
+  if (clubDistanceLineChart) return clubDistanceLineChart;
+  const canvas = $$('#clubDistanceLine'); if (!canvas) return null;
+  clubDistanceLineChart = new Chart(canvas, {
+    type:'line',
+    data:{datasets:[{label:'Distance',data:[],borderColor:'#ffaa4d',backgroundColor:'rgba(255,170,77,.15)',tension:0.25,pointRadius:3}]},
+    options:{
+      responsive:true, parsing:false,
+      scales:{ x:{type:'time', time:{unit:'day'}}, y:{beginAtZero:true, title:{display:true,text:'Yards'}} }
+    }
+  });
+  return clubDistanceLineChart;
+}
 
-// ---------- Aggregations (fixed byClub)
+// ---------- Aggregations (safe for free-form)
 function byClub(arr){
   const m = {};
   for(const s of arr){
     const k = s.club + (s.isHybrid ? ' (Hybrid)' : '');
-    (m[k] = m[k] || []).push(s); // <-- assign then push (works reliably)
+    (m[k] = m[k] || []).push(s);
   }
   return m;
 }
 const numericOnly = (arr)=>arr.map(s=>parseFloat(s.distance)).filter(n=>!isNaN(n));
-function stats(arr){
+function calcStats(arr){
   const nums = numericOnly(arr);
-  if (!nums.length) return {avg:0,min:0,max:0};
+  if (!nums.length) return {avg:0, min:0, max:0, count:arr.length};
   const sum = nums.reduce((a,b)=>a+b,0);
-  return {
-    avg: +(sum/nums.length).toFixed(1),
-    min: Math.min(...nums),
-    max: Math.max(...nums)
-  };
+  return {avg:+(sum/nums.length).toFixed(1), min:Math.min(...nums), max:Math.max(...nums), count:arr.length};
+}
+function tallyShapes(arr){
+  const shapes = ['Straight','Draw','Fade','Hook','Slice','Pull','Push'];
+  const map = new Map(shapes.map(s=>[s,0]));
+  arr.forEach(s => map.set(s.shape, (map.get(s.shape)||0)+1));
+  return map;
 }
 
 // ---------- LOGGER (session) Renders
 function renderLogger(){
-  // Summary (last 10 in session) — safe for free-form distances
-  const recent = [...sessionShots].slice(-10).reverse();
-  const st = stats(recent);
-  const safe = (v)=> (Number.isFinite(v) ? v : 0);
-  $$('#sessionSummary').innerHTML = `
-    <div class="summary">
-      <div class="box"><div class="label">Avg (10)</div><div class="val">${safe(st.avg)}</div></div>
-      <div class="box"><div class="label">Longest</div><div class="val">${safe(st.max)}</div></div>
-      <div class="box"><div class="label">Shortest</div><div class="val">${safe(st.min)}</div></div>
-      <div class="box"><div class="label">Session Swings</div><div class="val">${sessionShots.length}</div></div>
-    </div>
-  `;
+  // Per-club table (Average, Longest, Shortest, Swings)
+  const grouped = byClub(sessionShots);
+  const clubs = Object.keys(grouped).sort();
+  const tbody = $$('#sessionPerClub tbody');
+  if (!clubs.length){
+    tbody.innerHTML = `<tr><td colspan="5">No swings this session.</td></tr>`;
+  } else {
+    tbody.innerHTML = clubs.map(club=>{
+      const st = calcStats(grouped[club]);
+      const safe = v => Number.isFinite(v) ? v : 0;
+      return `<tr>
+        <td>${club}</td>
+        <td>${safe(st.avg)}</td>
+        <td>${safe(st.max)}</td>
+        <td>${safe(st.min)}</td>
+        <td>${st.count}</td>
+      </tr>`;
+    }).join('');
+  }
 
-  // Session table
-  const tbody = $$('#latestTable tbody');
-  tbody.innerHTML = sessionShots.length
+  // Session table (latest)
+  const latestBody = $$('#latestTable tbody');
+  latestBody.innerHTML = sessionShots.length
     ? [...sessionShots].slice(-50).reverse().map(s=>rowHTML(s,false,true)).join('')
     : `<tr><td colspan="6">No swings this session.</td></tr>`;
 }
 
-// ---------- HISTORY Renders (with filter + per-club bars)
+// ---------- HISTORY Renders (with filter + charts)
 function renderHistory(){
   const grouped = byClub(historyShots);
   const clubs = Object.keys(grouped).sort();
@@ -105,12 +125,13 @@ function renderHistory(){
   sel.value = clubs.includes(prev) ? prev : '__all__';
   renderHistoryFiltered();
 }
+
 function renderHistoryFiltered(){
   const selVal = $$('#historyClubFilter').value;
   const filtered = selVal==='__all__' ? historyShots : (byClub(historyShots)[selVal] || []);
 
   // Stats boxes (filtered)
-  const shapeCounts = filtered.reduce((m,s)=> (m[s.shape]=(m[s.shape]||0)+1, m), {});
+  const shapeCounts = Object.fromEntries(tallyShapes(filtered));
   $$('#historyStats').innerHTML = `
     <div class="stats">
       <div class="box"><div class="label">Total</div><div class="val">${filtered.length}</div></div>
@@ -118,20 +139,12 @@ function renderHistoryFiltered(){
     </div>
   `;
 
-  // Shapes chart (filtered)
-  const sc = getShape();
-  if (sc){
-    sc.data.labels = Object.keys(shapeCounts);
-    sc.data.datasets[0].data = Object.values(shapeCounts);
-    sc.update();
-  }
-
-  // Per-club Best/Avg/Worst chart (filtered set)
+  // Longest • Average • Shortest (bar) — for all clubs in filtered set
   const grouped = byClub(filtered);
   const clubs = Object.keys(grouped).sort();
-  const longest= clubs.map(c=>stats(grouped[c]).max);
-  const avg  = clubs.map(c=>stats(grouped[c]).avg);
-  const shortest= clubs.map(c=>stats(grouped[c]).min);
+  const longest = clubs.map(c=>calcStats(grouped[c]).max);
+  const avg     = clubs.map(c=>calcStats(grouped[c]).avg);
+  const shortest= clubs.map(c=>calcStats(grouped[c]).min);
   const hb = getHistoryBar();
   if (hb){
     hb.data.labels = clubs;
@@ -139,6 +152,36 @@ function renderHistoryFiltered(){
     hb.data.datasets[1].data = avg.map(v=>Number.isFinite(v)?v:0);
     hb.data.datasets[2].data = shortest.map(v=>Number.isFinite(v)?v:0);
     hb.update();
+  }
+
+  // Shot Types (bar) — for selected club or all clubs
+  const clubShapes = tallyShapes(filtered);
+  const csb = getClubShapesBar();
+  if (csb){
+    csb.data.labels = Array.from(clubShapes.keys());
+    csb.data.datasets[0].data = Array.from(clubShapes.values());
+    csb.update();
+  }
+
+  // Distance Trend (line) — only when a single club is selected
+  const trendCard = $$('#clubTrendCard');
+  const trendNote = $$('#trendNote');
+  const line = getClubDistanceLine();
+  if (selVal==='__all__'){
+    // Hide/clear trend when not a specific club
+    if (line){ line.data.datasets[0].data = []; line.update(); }
+    trendNote.style.display = 'block';
+  } else {
+    trendNote.style.display = 'none';
+    const arr = grouped[selVal] || [];
+    const pts = arr
+      .map(s=>({x:new Date(s.date).getTime(), y:parseFloat(s.distance)}))
+      .filter(p=>!isNaN(p.y))
+      .sort((a,b)=>a.x-b.x);
+    if (line){
+      line.data.datasets[0].data = pts;
+      line.update();
+    }
   }
 
   // Table (filtered)
