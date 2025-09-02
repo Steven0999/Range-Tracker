@@ -3,96 +3,89 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Driving Range Tracker</title>
+  <title>Driving Range Tracker (Fast)</title>
   <link rel="stylesheet" href="styles.css" />
-  <!-- Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
 </head>
 <body>
   <header class="topbar">
     <h1>Driving Range Tracker</h1>
     <nav class="nav">
-      <button id="navLogger" class="nav__btn" data-target="loggerView" aria-controls="loggerView" aria-selected="true">Logger</button>
-      <button id="navHistory" class="nav__btn" data-target="historyView" aria-controls="historyView">History</button>
+      <button class="nav__btn" data-target="loggerView" aria-selected="true">Logger</button>
+      <button class="nav__btn" data-target="historyView">History</button>
     </nav>
   </header>
 
   <main>
     <!-- LOGGER VIEW -->
-    <section id="loggerView" class="view view--active" role="region" aria-labelledby="navLogger">
-      <div class="card">
-        <h2>Record a Swing</h2>
+    <section id="loggerView" class="view view--active" role="region">
+      <div class="card tight">
         <form id="swingForm" autocomplete="off">
           <div class="grid">
-            <div class="field">
-              <label for="clubType">Club</label>
+            <label class="field">
+              <span>Club</span>
               <select id="clubType" required>
                 <optgroup label="Driver">
                   <option value="Driver">Driver</option>
                 </optgroup>
                 <optgroup label="Woods">
-                  <option value="3 Wood">3 Wood</option>
-                  <option value="4 Wood">4 Wood</option>
-                  <option value="5 Wood">5 Wood</option>
-                  <option value="7 Wood">7 Wood</option>
+                  <option>3 Wood</option><option>4 Wood</option>
+                  <option>5 Wood</option><option>7 Wood</option>
                 </optgroup>
                 <optgroup label="Irons">
-                  <option value="1 Iron">1 Iron</option>
-                  <option value="2 Iron">2 Iron</option>
-                  <option value="3 Iron">3 Iron</option>
-                  <option value="4 Iron">4 Iron</option>
-                  <option value="5 Iron">5 Iron</option>
-                  <option value="6 Iron">6 Iron</option>
-                  <option value="7 Iron">7 Iron</option>
-                  <option value="8 Iron">8 Iron</option>
-                  <option value="9 Iron">9 Iron</option>
+                  <option>1 Iron</option><option>2 Iron</option><option>3 Iron</option>
+                  <option>4 Iron</option><option>5 Iron</option><option>6 Iron</option>
+                  <option>7 Iron</option><option>8 Iron</option><option>9 Iron</option>
                 </optgroup>
                 <optgroup label="Wedges">
-                  <option value="Pitching Wedge">Pitching Wedge</option>
-                  <option value="Gap Wedge">Gap Wedge</option>
-                  <option value="Sand Wedge">Sand Wedge</option>
-                  <option value="Lob Wedge">Lob Wedge</option>
+                  <option>Pitching Wedge</option><option>Gap Wedge</option>
+                  <option>Sand Wedge</option><option>Lob Wedge</option>
                 </optgroup>
                 <optgroup label="Other">
-                  <option value="Other">Other (custom)</option>
+                  <option>Other</option>
                 </optgroup>
               </select>
-            </div>
+            </label>
 
-            <div class="field" id="otherClubWrap" hidden>
-              <label for="otherClub">Custom Club Name</label>
-              <input id="otherClub" type="text" placeholder="e.g., 2 Hybrid, 64° Wedge" />
-            </div>
+            <label class="field" id="otherClubWrap" hidden>
+              <span>Custom Club</span>
+              <input id="otherClub" type="text" placeholder="e.g., 3 Hybrid, 64° Wedge" />
+            </label>
 
-            <div class="field field--checkbox">
-              <label class="chk">
-                <input id="isHybrid" type="checkbox" />
-                <span>Hybrid</span>
-              </label>
-            </div>
+            <label class="field chk">
+              <input id="isHybrid" type="checkbox" />
+              <span>Hybrid</span>
+            </label>
 
-            <div class="field">
-              <label for="distance">Distance (yds)</label>
-              <input id="distance" type="number" inputmode="decimal" min="1" step="1" placeholder="e.g., 165" required />
-            </div>
+            <label class="field">
+              <span>Distance (yds)</span>
+              <!-- Numbers only + mobile numeric keypad -->
+              <input id="distance"
+                     type="text"
+                     inputmode="numeric"
+                     pattern="[0-9]*"
+                     placeholder="e.g., 165"
+                     maxlength="4"
+                     required />
+            </label>
 
-            <div class="field">
-              <label for="shape">Shot Shape</label>
+            <label class="field">
+              <span>Shot Shape</span>
               <select id="shape" required>
-                <option value="Straight">Straight</option>
-                <option value="Draw">Draw</option>
-                <option value="Fade">Fade</option>
-                <option value="Hook">Hook</option>
-                <option value="Slice">Slice</option>
-                <option value="Pull">Pull</option>
-                <option value="Push">Push</option>
+                <option>Straight</option>
+                <option>Draw</option>
+                <option>Fade</option>
+                <option>Hook</option>
+                <option>Slice</option>
+                <option>Pull</option>
+                <option>Push</option>
               </select>
-            </div>
+            </label>
 
-            <div class="field">
-              <label for="date">Date & Time</label>
+            <label class="field">
+              <span>Date & Time</span>
               <input id="date" type="datetime-local" required />
-            </div>
+            </label>
           </div>
 
           <div class="actions">
@@ -102,26 +95,22 @@
         </form>
       </div>
 
-      <div class="card">
-        <h3>Session Summary</h3>
-        <div class="summary-grid" id="sessionSummary">
-          <!-- Filled by JS -->
-        </div>
-      </div>
-
-      <div class="card">
-        <h3>Per-Club Best / Average / Worst</h3>
-        <canvas id="clubBars" height="120"></canvas>
-        <div class="legend-tip">Green = Best • Blue = Average • Red = Worst</div>
+      <div class="card tight">
+        <div class="summary" id="sessionSummary"></div>
       </div>
 
       <div class="card">
         <div class="row">
-          <h3>Trend (by Club)</h3>
-          <div class="row__right">
-            <label for="trendClub" class="sr-only">Trend Club</label>
-            <select id="trendClub"></select>
-          </div>
+          <h3>Per-Club Best • Avg • Worst</h3>
+        </div>
+        <canvas id="clubBars" height="120"></canvas>
+        <div class="legend small">Best = <span class="dot good"></span> • Avg = <span class="dot avg"></span> • Worst = <span class="dot bad"></span></div>
+      </div>
+
+      <div class="card">
+        <div class="row">
+          <h3>Trend</h3>
+          <select id="trendClub" class="compact"></select>
         </div>
         <canvas id="trendChart" height="120"></canvas>
       </div>
@@ -129,56 +118,34 @@
       <div class="card">
         <h3>Latest Swings</h3>
         <div class="table-wrap">
-          <table class="table" id="latestTable" aria-live="polite">
+          <table class="table" id="latestTable">
             <thead>
               <tr>
-                <th>Date</th>
-                <th>Club</th>
-                <th>Hybrid</th>
-                <th>Distance (yds)</th>
-                <th>Shape</th>
-                <th></th>
+                <th>Date</th><th>Club</th><th>Hyb</th>
+                <th>Yds</th><th>Shape</th><th></th>
               </tr>
             </thead>
-            <tbody><!-- Rows injected by JS --></tbody>
+            <tbody></tbody>
           </table>
         </div>
       </div>
 
-      <div class="card card--danger">
+      <div class="card danger">
         <div class="row">
-          <h3>Danger Zone</h3>
-          <button id="resetAll" class="btn danger" aria-label="Delete all data">Reset All Data</button>
+          <h3>Reset All</h3>
+          <button id="resetAll" class="btn danger">Delete All Data</button>
         </div>
-        <p class="muted">This wipes your entire history from this browser only.</p>
       </div>
     </section>
 
     <!-- HISTORY VIEW -->
-    <section id="historyView" class="view" role="region" aria-labelledby="navHistory">
-      <div class="card">
+    <section id="historyView" class="view" role="region">
+      <div class="card tight">
         <div class="row">
           <h2>History</h2>
           <button class="btn" data-target="loggerView">Back to Logger</button>
         </div>
-        <div class="stats">
-          <div class="stat">
-            <div class="stat__label">Total Swings</div>
-            <div class="stat__value" id="totalSwings">0</div>
-          </div>
-          <div class="stat">
-            <div class="stat__label">Straight</div>
-            <div class="stat__value" id="totalStraight">0</div>
-          </div>
-          <div class="stat">
-            <div class="stat__label">Hook</div>
-            <div class="stat__value" id="totalHook">0</div>
-          </div>
-          <div class="stat">
-            <div class="stat__label">Slice</div>
-            <div class="stat__value" id="totalSlice">0</div>
-          </div>
-        </div>
+        <div class="stats" id="historyStats"></div>
       </div>
 
       <div class="card">
@@ -192,15 +159,10 @@
           <table class="table" id="historyTable">
             <thead>
               <tr>
-                <th>Date</th>
-                <th>Club</th>
-                <th>Hybrid</th>
-                <th>Distance (yds)</th>
-                <th>Shape</th>
-                <th>Actions</th>
+                <th>Date</th><th>Club</th><th>Hyb</th><th>Yds</th><th>Shape</th><th>Actions</th>
               </tr>
             </thead>
-            <tbody><!-- Injected --></tbody>
+            <tbody></tbody>
           </table>
         </div>
       </div>
@@ -209,10 +171,8 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <footer class="footer">
-    <small>Data is stored locally in your browser. No account required. 🔨🤖🔧</small>
-  </footer>
+  <footer class="footer"><small>Local-only data. No backend. 🔨🤖🔧</small></footer>
 
   <script src="app.js"></script>
 </body>
-  </html>
+</html>
