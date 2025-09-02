@@ -1,6 +1,6 @@
 :root{
   --bg:#0e1020; --card:#141731; --muted:#9aa0be; --text:#eef1ff;
-  --primary:#59c2ff; --danger:#ff5c7c; --good:#19d27c; --avg:#4d7cff; --bad:#ff5c5c;
+  --primary:orange; --danger:#ff5c7c; --good:#19d27c; --avg:#4d7cff; --bad:#ff5c5c;
   --border:rgba(255,255,255,.08); --radius:10px;
 }
 *{box-sizing:border-box}
